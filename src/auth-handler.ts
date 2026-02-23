@@ -11,8 +11,6 @@ import {
   generateCSRFProtection,
   isClientApproved,
   OAuthError,
-  renderApprovalDialog,
-  validateCSRFToken,
   validateOAuthState,
 } from "./workers-oauth-utils";
 
@@ -40,11 +38,11 @@ async function getKnockOAuthMetadata(authUrl: string): Promise<KnockOAuthMetadat
 // given redirect URI. The client_id is cached in KV so we only register once
 // per redirect URI (e.g. once for localhost:8788/callback, once for prod).
 async function registerUpstreamClient(
-  env: Env & { MCP_OAUTH_KV: KVNamespace },
+  env: Env & { OAUTH_KV: KVNamespace },
   redirectUri: string,
 ): Promise<string> {
   const kvKey = `upstream:client:${redirectUri}`;
-  const cached = await env.MCP_OAUTH_KV.get(kvKey);
+  const cached = await env.OAUTH_KV.get(kvKey);
   if (cached) return cached;
 
   const metadata = await getKnockOAuthMetadata(env.KNOCK_AUTH_URL);
@@ -52,7 +50,7 @@ async function registerUpstreamClient(
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      client_name: "Knock MCP Server",
+      client_name: "Knock MCP",
       redirect_uris: [redirectUri],
       grant_types: ["authorization_code", "refresh_token"],
       token_endpoint_auth_method: "none",
@@ -65,7 +63,7 @@ async function registerUpstreamClient(
   }
 
   const { client_id } = (await res.json()) as { client_id: string };
-  await env.MCP_OAUTH_KV.put(kvKey, client_id);
+  await env.OAUTH_KV.put(kvKey, client_id);
   return client_id;
 }
 
@@ -89,7 +87,7 @@ async function generatePKCE(): Promise<{ codeVerifier: string; codeChallenge: st
 }
 
 async function buildKnockAuthorizationUrl(
-  env: Env & { OAUTH_PROVIDER: OAuthHelpers; MCP_OAUTH_KV: KVNamespace },
+  env: Env & { OAUTH_PROVIDER: OAuthHelpers; OAUTH_KV: KVNamespace },
   stateToken: string,
   requestUrl: string,
 ): Promise<string> {
@@ -103,7 +101,7 @@ async function buildKnockAuthorizationUrl(
     generatePKCE(),
   ]);
 
-  await env.MCP_OAUTH_KV.put(`oauth:pkce:${stateToken}`, codeVerifier, { expirationTtl: 600 });
+  await env.OAUTH_KV.put(`oauth:pkce:${stateToken}`, codeVerifier, { expirationTtl: 600 });
 
   const params = new URLSearchParams({
     response_type: "code",
@@ -161,7 +159,7 @@ app.get("/authorize", async (c) => {
   }
 
   if (await isClientApproved(c.req.raw, clientId, c.env.COOKIE_ENCRYPTION_KEY)) {
-    const { stateToken } = await createOAuthState(oauthReqInfo, c.env.MCP_OAUTH_KV);
+    const { stateToken } = await createOAuthState(oauthReqInfo, c.env.OAUTH_KV);
     const { setCookie: sessionBindingCookie } = await bindStateToSession(stateToken);
     const authUrl = await buildKnockAuthorizationUrl(c.env, stateToken, c.req.url);
 
@@ -172,29 +170,59 @@ app.get("/authorize", async (c) => {
   }
 
   const { token: csrfToken, setCookie } = generateCSRFProtection();
+  const client = await c.env.OAUTH_PROVIDER.lookupClient(clientId);
 
-  return renderApprovalDialog(c.req.raw, {
-    client: await c.env.OAUTH_PROVIDER.lookupClient(clientId),
-    csrfToken,
-    server: {
-      name: "Knock",
-      logo: `${c.env.KNOCK_DASHBOARD_URL}/favicon.ico`,
-      description:
-        "Connect your AI assistant to Knock to manage notifications, workflows, and more.",
-    },
-    setCookie,
-    state: { oauthReqInfo },
+  const state = btoa(JSON.stringify({ oauthReqInfo }));
+  const clientData = btoa(
+    JSON.stringify({
+      clientName: client?.clientName,
+      clientUri: client?.clientUri,
+      policyUri: client?.policyUri,
+      tosUri: client?.tosUri,
+      redirectUris: client?.redirectUris,
+      contacts: client?.contacts,
+    }),
+  );
+
+  const approvalUrl = new URL("/approval", c.req.url);
+  approvalUrl.searchParams.set("state", state);
+  approvalUrl.searchParams.set("csrf", csrfToken);
+  approvalUrl.searchParams.set("client", clientData);
+
+  return new Response(null, {
+    status: 302,
+    headers: { Location: approvalUrl.toString(), "Set-Cookie": setCookie },
   });
+});
+
+app.get("/approval", async (c) => {
+  const assetUrl = new URL("/index.html", c.req.url);
+  return c.env.ASSETS.fetch(assetUrl);
 });
 
 app.post("/authorize", async (c) => {
   try {
-    const formData = await c.req.raw.formData();
-    validateCSRFToken(formData, c.req.raw);
+    const body = await c.req.json<{ state: string; csrfToken: string }>();
+    const { state: encodedState, csrfToken } = body;
 
-    const encodedState = formData.get("state");
-    if (!encodedState || typeof encodedState !== "string") {
-      return c.text("Missing state in form data", 400);
+    if (!encodedState || !csrfToken) {
+      return c.text("Missing state or csrfToken in request body", 400);
+    }
+
+    // Validate CSRF token: body token must match __Host-CSRF_TOKEN cookie
+    const csrfCookieName = "__Host-CSRF_TOKEN";
+    const cookieHeader = c.req.header("cookie") ?? "";
+    const csrfCookie = cookieHeader
+      .split(";")
+      .map((s) => s.trim())
+      .find((s) => s.startsWith(`${csrfCookieName}=`));
+    const tokenFromCookie = csrfCookie ? csrfCookie.substring(csrfCookieName.length + 1) : null;
+
+    if (!tokenFromCookie) {
+      return c.text("Missing CSRF token cookie", 400);
+    }
+    if (csrfToken !== tokenFromCookie) {
+      return c.text("CSRF token mismatch", 403);
     }
 
     let state: { oauthReqInfo?: AuthRequest };
@@ -214,15 +242,15 @@ app.post("/authorize", async (c) => {
       c.env.COOKIE_ENCRYPTION_KEY,
     );
 
-    const { stateToken } = await createOAuthState(state.oauthReqInfo, c.env.MCP_OAUTH_KV);
+    const { stateToken } = await createOAuthState(state.oauthReqInfo, c.env.OAUTH_KV);
     const { setCookie: sessionBindingCookie } = await bindStateToSession(stateToken);
     const authUrl = await buildKnockAuthorizationUrl(c.env, stateToken, c.req.url);
 
-    const headers = new Headers({ Location: authUrl });
+    const headers = new Headers({ "Content-Type": "application/json" });
     headers.append("Set-Cookie", approvedClientCookie);
     headers.append("Set-Cookie", sessionBindingCookie);
 
-    return new Response(null, { status: 302, headers });
+    return new Response(JSON.stringify({ redirectTo: authUrl }), { status: 200, headers });
   } catch (error: unknown) {
     console.error("POST /authorize error:", error);
     if (error instanceof OAuthError) {
@@ -238,7 +266,7 @@ app.get("/callback", async (c) => {
   let clearSessionCookie: string;
 
   try {
-    const result = await validateOAuthState(c.req.raw, c.env.MCP_OAUTH_KV);
+    const result = await validateOAuthState(c.req.raw, c.env.OAUTH_KV);
     oauthReqInfo = result.oauthReqInfo;
     clearSessionCookie = result.clearCookie;
   } catch (error: unknown) {
@@ -263,11 +291,11 @@ app.get("/callback", async (c) => {
     return c.text("Missing state parameter", 400);
   }
 
-  const codeVerifier = await c.env.MCP_OAUTH_KV.get(`oauth:pkce:${stateToken}`);
+  const codeVerifier = await c.env.OAUTH_KV.get(`oauth:pkce:${stateToken}`);
   if (!codeVerifier) {
     return c.text("Missing or expired PKCE verifier", 400);
   }
-  await c.env.MCP_OAUTH_KV.delete(`oauth:pkce:${stateToken}`);
+  await c.env.OAUTH_KV.delete(`oauth:pkce:${stateToken}`);
 
   // Exchange authorization code for tokens via Knock's token endpoint
   // Must match the redirect URI used during authorization — use DEV_ORIGIN to
@@ -318,9 +346,9 @@ app.get("/callback", async (c) => {
 
   // Store tokens and oauthReqInfo in KV temporarily, then redirect to tool selection
   const sessionKey = crypto.randomUUID();
-  await c.env.MCP_OAUTH_KV.put(
+  await c.env.OAUTH_KV.put(
     `tool-auth:${sessionKey}`,
-    JSON.stringify({ accessToken, userId, email, oauthReqInfo }),
+    JSON.stringify({ accessToken, userId, email, clientId, oauthReqInfo }),
     { expirationTtl: 300 },
   );
 
@@ -340,7 +368,7 @@ app.get("/tools", async (c) => {
   const session = c.req.query("session");
   if (!session) return c.text("Missing session", 400);
 
-  const data = await c.env.MCP_OAUTH_KV.get(`tool-auth:${session}`);
+  const data = await c.env.OAUTH_KV.get(`tool-auth:${session}`);
   if (!data) return c.text("Session expired or invalid", 400);
 
   const assetUrl = new URL("/index.html", c.req.url);
@@ -354,7 +382,7 @@ app.get("/api/tool-groups", async (c) => {
   const session = c.req.query("session");
   if (!session) return c.json({ error: "Missing session" }, 400);
 
-  const raw = await c.env.MCP_OAUTH_KV.get(`tool-auth:${session}`);
+  const raw = await c.env.OAUTH_KV.get(`tool-auth:${session}`);
   if (!raw) return c.json({ error: "Session expired or invalid" }, 400);
 
   const { email } = JSON.parse(raw) as { email?: string };
@@ -364,15 +392,12 @@ app.get("/api/tool-groups", async (c) => {
   // prevents cross-site requests from including the cookie.
   const csrfCookie = `${TOOL_CSRF_COOKIE}=${csrfToken}; HttpOnly; Path=/api; SameSite=Strict; Max-Age=600`;
 
-  return new Response(
-    JSON.stringify({ toolGroups, email, csrfToken }),
-    {
-      headers: {
-        "Content-Type": "application/json",
-        "Set-Cookie": csrfCookie,
-      },
+  return new Response(JSON.stringify({ toolGroups, email, csrfToken }), {
+    headers: {
+      "Content-Type": "application/json",
+      "Set-Cookie": csrfCookie,
     },
-  );
+  });
 });
 
 // Accept selected tool groups, complete authorization, and return redirect URL
@@ -400,12 +425,13 @@ app.post("/api/authorize-tools", async (c) => {
     }
 
     // Retrieve and delete stored session data
-    const raw = await c.env.MCP_OAUTH_KV.get(`tool-auth:${session}`);
+    const raw = await c.env.OAUTH_KV.get(`tool-auth:${session}`);
     if (!raw) return c.json({ error: "Session expired or invalid" }, 400);
-    await c.env.MCP_OAUTH_KV.delete(`tool-auth:${session}`);
+    await c.env.OAUTH_KV.delete(`tool-auth:${session}`);
 
-    const { accessToken, userId, email, oauthReqInfo } = JSON.parse(raw) as {
+    const { accessToken, userId, email, clientId, oauthReqInfo } = JSON.parse(raw) as {
       accessToken: string;
+      clientId?: string;
       userId?: string;
       email?: string;
       oauthReqInfo: AuthRequest;
@@ -416,7 +442,7 @@ app.post("/api/authorize-tools", async (c) => {
       userId: userId ?? "unknown",
       metadata: {},
       scope: [],
-      props: { accessToken, userId, email, selectedGroups } satisfies Props,
+      props: { accessToken, clientId, userId, email, selectedGroups } satisfies Props,
     });
 
     return c.json({ redirectTo });

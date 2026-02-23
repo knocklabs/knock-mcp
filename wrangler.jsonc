@@ -20,7 +20,7 @@
   },
   "kv_namespaces": [
     {
-      "binding": "MCP_OAUTH_KV",
+      "binding": "OAUTH_KV",
       "id": "6bd2b6c4a2b6472391c5628904890d54"
     }
   ],

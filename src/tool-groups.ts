@@ -12,7 +12,15 @@ export const toolGroups: ToolGroup[] = [
     name: "Manage resources",
     description:
       "Create and manage notification workflows, channels, templates, and other configuration",
-    categories: ["channels", "emailLayouts", "environments", "guides", "messageTypes", "partials", "workflows"],
+    categories: [
+      "channels",
+      "emailLayouts",
+      "environments",
+      "guides",
+      "messageTypes",
+      "partials",
+      "workflows",
+    ],
     enabledByDefault: true,
   },
   {

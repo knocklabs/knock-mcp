@@ -1,7 +1,7 @@
 // Adapted from https://github.com/cloudflare/ai/blob/main/demos/remote-mcp-authkit/src/workers-oauth-utils.ts
 // OAuth utility functions with CSRF and state validation security fixes
 
-import type { AuthRequest, ClientInfo } from "@cloudflare/workers-oauth-provider";
+import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
 
 export class OAuthError extends Error {
   constructor(
@@ -14,10 +14,10 @@ export class OAuthError extends Error {
   }
 
   toResponse(): Response {
-    return new Response(
-      JSON.stringify({ error: this.code, error_description: this.description }),
-      { status: this.statusCode, headers: { "Content-Type": "application/json" } },
-    );
+    return new Response(JSON.stringify({ error: this.code, error_description: this.description }), {
+      status: this.statusCode,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }
 
@@ -151,9 +151,7 @@ export async function validateOAuthState(
 
   const cookieHeader = request.headers.get("Cookie") || "";
   const cookies = cookieHeader.split(";").map((c) => c.trim());
-  const consentedStateCookie = cookies.find((c) =>
-    c.startsWith(`${consentedStateCookieName}=`),
-  );
+  const consentedStateCookie = cookies.find((c) => c.startsWith(`${consentedStateCookieName}=`));
   const consentedStateHash = consentedStateCookie
     ? consentedStateCookie.substring(consentedStateCookieName.length + 1)
     : null;
@@ -210,8 +208,7 @@ export async function addApprovedClient(
   const approvedClientsCookieName = "__Host-APPROVED_CLIENTS";
   const THIRTY_DAYS_IN_SECONDS = 2592000;
 
-  const existingApprovedClients =
-    (await getApprovedClientsFromCookie(request, cookieSecret)) || [];
+  const existingApprovedClients = (await getApprovedClientsFromCookie(request, cookieSecret)) || [];
   const updatedApprovedClients = Array.from(new Set([...existingApprovedClients, clientId]));
 
   const payload = JSON.stringify(updatedApprovedClients);
@@ -219,144 +216,6 @@ export async function addApprovedClient(
   const cookieValue = `${signature}.${btoa(payload)}`;
 
   return `${approvedClientsCookieName}=${cookieValue}; HttpOnly; Secure; Path=/; SameSite=Lax; Max-Age=${THIRTY_DAYS_IN_SECONDS}`;
-}
-
-export interface ApprovalDialogOptions {
-  client: ClientInfo | null;
-  server: {
-    name: string;
-    logo?: string;
-    description?: string;
-  };
-  state: Record<string, unknown>;
-  csrfToken: string;
-  setCookie: string;
-}
-
-export function renderApprovalDialog(request: Request, options: ApprovalDialogOptions): Response {
-  const { client, server, state, csrfToken, setCookie } = options;
-
-  const encodedState = btoa(JSON.stringify(state));
-
-  const serverName = sanitizeText(server.name);
-  const clientName = client?.clientName ? sanitizeText(client.clientName) : "Unknown MCP Client";
-  const serverDescription = server.description ? sanitizeText(server.description) : "";
-  const logoUrl = server.logo ? sanitizeText(sanitizeUrl(server.logo)) : "";
-  const clientUri = client?.clientUri ? sanitizeText(sanitizeUrl(client.clientUri)) : "";
-  const policyUri = client?.policyUri ? sanitizeText(sanitizeUrl(client.policyUri)) : "";
-  const tosUri = client?.tosUri ? sanitizeText(sanitizeUrl(client.tosUri)) : "";
-
-  const contacts =
-    client?.contacts && client.contacts.length > 0
-      ? sanitizeText(client.contacts.join(", "))
-      : "";
-
-  const redirectUris =
-    client?.redirectUris && client.redirectUris.length > 0
-      ? client.redirectUris
-          .map((uri) => {
-            const validated = sanitizeUrl(uri);
-            return validated ? sanitizeText(validated) : "";
-          })
-          .filter((uri) => uri !== "")
-      : [];
-
-  const htmlContent = `<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${clientName} | Authorization Request</title>
-  <style>
-    :root {
-      --primary-color: #6E3EEE;
-      --border-color: #e5e7eb;
-      --text-color: #111827;
-      --background-color: #fff;
-      --card-shadow: 0 8px 36px 8px rgba(0, 0, 0, 0.1);
-    }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-      line-height: 1.6;
-      color: var(--text-color);
-      background-color: #f9fafb;
-      margin: 0;
-      padding: 0;
-    }
-    .container { max-width: 600px; margin: 2rem auto; padding: 1rem; }
-    .precard { padding: 2rem; text-align: center; }
-    .card { background-color: var(--background-color); border-radius: 8px; box-shadow: var(--card-shadow); padding: 2rem; }
-    .header { display: flex; align-items: center; justify-content: center; margin-bottom: 1.5rem; }
-    .logo { width: 48px; height: 48px; margin-right: 1rem; border-radius: 8px; object-fit: contain; }
-    .title { margin: 0; font-size: 1.3rem; font-weight: 400; }
-    .alert { margin: 1rem 0; font-size: 1.5rem; font-weight: 400; text-align: center; }
-    .description { color: #555; }
-    .client-info { border: 1px solid var(--border-color); border-radius: 6px; padding: 1rem 1rem 0.5rem; margin-bottom: 1.5rem; }
-    .client-name { font-weight: 600; font-size: 1.2rem; margin: 0 0 0.5rem 0; }
-    .client-detail { display: flex; margin-bottom: 0.5rem; align-items: baseline; }
-    .detail-label { font-weight: 500; min-width: 120px; }
-    .detail-value { font-family: SFMono-Regular, Menlo, Monaco, Consolas, monospace; word-break: break-all; }
-    .detail-value a { color: inherit; text-decoration: underline; }
-    .detail-value.small { font-size: 0.8em; }
-    .actions { display: flex; justify-content: flex-end; gap: 1rem; margin-top: 2rem; }
-    .button { padding: 0.75rem 1.5rem; border-radius: 6px; font-weight: 500; cursor: pointer; border: none; font-size: 1rem; }
-    .button-primary { background-color: var(--primary-color); color: white; }
-    .button-secondary { background-color: transparent; border: 1px solid var(--border-color); color: var(--text-color); }
-    @media (max-width: 640px) {
-      .container { margin: 1rem auto; padding: 0.5rem; }
-      .card { padding: 1.5rem; }
-      .client-detail { flex-direction: column; }
-      .detail-label { min-width: unset; margin-bottom: 0.25rem; }
-      .actions { flex-direction: column; }
-      .button { width: 100%; }
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <div class="precard">
-      <div class="header">
-        ${logoUrl ? `<img src="${logoUrl}" alt="${serverName} logo" class="logo">` : ""}
-        <h1 class="title">${serverName}</h1>
-      </div>
-      ${serverDescription ? `<p class="description">${serverDescription}</p>` : ""}
-    </div>
-    <div class="card">
-      <h2 class="alert">${clientName || "A new MCP Client"} is requesting access</h2>
-      <div class="client-info">
-        <p class="client-name">${clientName}</p>
-        <div class="client-detail">
-          <span class="detail-label">Name:</span>
-          <span class="detail-value">${clientName}</span>
-        </div>
-        ${clientUri ? `<div class="client-detail"><span class="detail-label">Website:</span><span class="detail-value"><a href="${clientUri}" target="_blank" rel="noopener noreferrer">${clientUri}</a></span></div>` : ""}
-        ${policyUri ? `<div class="client-detail"><span class="detail-label">Privacy Policy:</span><span class="detail-value"><a href="${policyUri}" target="_blank" rel="noopener noreferrer">${policyUri}</a></span></div>` : ""}
-        ${tosUri ? `<div class="client-detail"><span class="detail-label">Terms of Service:</span><span class="detail-value"><a href="${tosUri}" target="_blank" rel="noopener noreferrer">${tosUri}</a></span></div>` : ""}
-        ${redirectUris.length > 0 ? `<div class="client-detail"><span class="detail-label">Redirect URIs:</span><span class="detail-value small">${redirectUris.map((uri) => `<div>${uri}</div>`).join("")}</span></div>` : ""}
-        ${contacts ? `<div class="client-detail"><span class="detail-label">Contact:</span><span class="detail-value">${contacts}</span></div>` : ""}
-      </div>
-      <p>This MCP Client is requesting to be authorized on ${serverName}. If you approve, you will be redirected to complete authentication with your Knock account.</p>
-      <form method="POST" action="/authorize">
-        <input type="hidden" name="state" value="${encodedState}">
-        <input type="hidden" name="csrf_token" value="${csrfToken}">
-        <div class="actions">
-          <button type="button" class="button button-secondary" onclick="history.back()">Cancel</button>
-          <button type="submit" class="button button-primary">Approve</button>
-        </div>
-      </form>
-    </div>
-  </div>
-</body>
-</html>`;
-
-  return new Response(htmlContent, {
-    headers: {
-      "Content-Security-Policy": "frame-ancestors 'none'",
-      "Content-Type": "text/html; charset=utf-8",
-      "Set-Cookie": setCookie,
-      "X-Frame-Options": "DENY",
-    },
-  });
 }
 
 // --- Helper Functions ---
@@ -385,7 +244,10 @@ async function getApprovedClientsFromCookie(
 
   try {
     const approvedClients = JSON.parse(payload);
-    if (!Array.isArray(approvedClients) || !approvedClients.every((item) => typeof item === "string")) {
+    if (
+      !Array.isArray(approvedClients) ||
+      !approvedClients.every((item) => typeof item === "string")
+    ) {
       return null;
     }
     return approvedClients as string[];
@@ -414,7 +276,12 @@ async function verifySignature(
     const signatureBytes = new Uint8Array(
       signatureHex.match(/.{1,2}/g)!.map((byte) => Number.parseInt(byte, 16)),
     );
-    return await crypto.subtle.verify("HMAC", key, signatureBytes.buffer as ArrayBuffer, enc.encode(data));
+    return await crypto.subtle.verify(
+      "HMAC",
+      key,
+      signatureBytes.buffer as ArrayBuffer,
+      enc.encode(data),
+    );
   } catch {
     return false;
   }

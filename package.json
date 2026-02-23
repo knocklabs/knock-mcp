@@ -10,11 +10,14 @@
     "dev": "wrangler dev",
     "dev:client": "cd client && npm run dev",
     "start": "wrangler dev",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "format": "prettier --write \"src/**/*.ts\" \"client/src/**/*.{ts,tsx}\""
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "^0.2.3",
     "@knocklabs/agent-toolkit": "^0.5.4",
+    "@knocklabs/mgmt": "^0.17.1",
+    "@knocklabs/node": "^1.29.0",
     "@modelcontextprotocol/sdk": "^1.7.0",
     "agents": "^0.0.93",
     "hono": "^4.7.10",
@@ -24,6 +27,7 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250224.0",
     "@types/node": "^25.3.0",
+    "prettier": "^3.8.1",
     "typescript": "^5.8.2",
     "wrangler": "^4.0.0"
   }

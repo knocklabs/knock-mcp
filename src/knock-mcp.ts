@@ -1,23 +1,46 @@
 import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import KnockMgmt from "@knocklabs/mgmt";
+import { Knock } from "@knocklabs/node";
 
-import { tools, allTools, createKnockClient, type KnockToolType } from "@knocklabs/agent-toolkit/core";
+import { tools, allTools, type KnockToolType } from "@knocklabs/agent-toolkit/core";
 
 import type { Env, Props } from "./types";
 import { resolveGroupsToCategories } from "./tool-groups";
+
+function createKnockClient(config: { serviceToken: string; clientId?: string }) {
+  const defaultHeaders: Record<string, string> = {};
+  if (config.clientId) {
+    defaultHeaders["x-knock-client-id"] = config.clientId;
+  }
+
+  const client = new KnockMgmt({
+    serviceToken: config.serviceToken,
+    defaultHeaders,
+  });
+
+  return Object.assign(client, {
+    publicApi: async (environmentSlug?: string): Promise<Knock> => {
+      const environment = environmentSlug ?? "development";
+      const { api_key } = await client.apiKeys.exchange({ environment });
+      return new Knock({ apiKey: api_key, defaultHeaders });
+    },
+  });
+}
 
 export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
   server = new McpServer({ name: "Knock", version: "1.0.0" });
 
   async init() {
     const config = { serviceToken: this.props.accessToken };
-    const knockClient = createKnockClient(config);
+    const knockClient = createKnockClient({ ...config, clientId: this.props.clientId });
 
     const enabledTools = this.props.selectedGroups
-      ? resolveGroupsToCategories(this.props.selectedGroups)
-          .flatMap((cat) => Object.values((tools as Record<string, Record<string, KnockToolType>>)[cat] ?? {}))
-      : (Object.values(allTools as Record<string, KnockToolType>));
+      ? resolveGroupsToCategories(this.props.selectedGroups).flatMap((cat) =>
+          Object.values((tools as Record<string, Record<string, KnockToolType>>)[cat] ?? {}),
+        )
+      : Object.values(allTools as Record<string, KnockToolType>);
 
     enabledTools.forEach((tool) => {
       // Cast through unknown to handle potential zod instance mismatch between packages

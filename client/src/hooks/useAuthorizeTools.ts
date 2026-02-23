@@ -1,9 +1,10 @@
 import { useState } from "react";
 
-type Status = "idle" | "submitting" | "error";
+type Status = "idle" | "submitting" | "done" | "error";
 
 export function useAuthorizeTools() {
   const [status, setStatus] = useState<Status>("idle");
+  const [redirectTo, setRedirectTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   async function authorize(
@@ -27,12 +28,13 @@ export function useAuthorizeTools() {
       }
 
       const { redirectTo } = (await res.json()) as { redirectTo: string };
-      window.location.href = redirectTo;
+      setRedirectTo(redirectTo);
+      setStatus("done");
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : "Unknown error");
       setStatus("error");
     }
   }
 
-  return { authorize, status, error };
+  return { authorize, status, redirectTo, error };
 }
