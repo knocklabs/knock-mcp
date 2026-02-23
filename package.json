@@ -1,0 +1,30 @@
+{
+  "name": "@knocklabs/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build:client": "cd client && npm run build",
+    "build": "npm run build:client && tsc -p .",
+    "cf-typegen": "wrangler types",
+    "deploy": "npm run build:client && wrangler deploy",
+    "dev": "wrangler dev",
+    "dev:client": "cd client && npm run dev",
+    "start": "wrangler dev",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.2.3",
+    "@knocklabs/agent-toolkit": "^0.5.4",
+    "@modelcontextprotocol/sdk": "^1.7.0",
+    "agents": "^0.0.93",
+    "hono": "^4.7.10",
+    "jose": "^5.10.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20250224.0",
+    "@types/node": "^25.3.0",
+    "typescript": "^5.8.2",
+    "wrangler": "^4.0.0"
+  }
+}

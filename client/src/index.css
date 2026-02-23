@@ -1,0 +1,40 @@
+@import "@telegraph/tokens/default";
+@import "@telegraph/button/default.css";
+@import "@telegraph/layout/default.css";
+@import "@telegraph/typography/default.css";
+@import "@telegraph/toggle/default.css";
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background-color: var(--tgph-gray-2);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.card-header {
+  border-bottom: 1px solid var(--tgph-gray-4);
+}
+
+
+.spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--tgph-gray-4);
+  border-top-color: var(--tgph-accent-9);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}

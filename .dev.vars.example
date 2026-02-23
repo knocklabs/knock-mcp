@@ -1,0 +1,13 @@
+# Copy this file to .dev.vars and fill in the values for local development
+
+# Override base URL for local dev (wrangler rewrites the domain to the production one)
+DEV_ORIGIN=http://localhost:8788
+
+# Knock auth server URL (e.g. https://signin.knock.app)
+KNOCK_AUTH_URL=https://signin.knock.app
+
+# Knock dashboard URL (used for branding in consent dialog)
+KNOCK_DASHBOARD_URL=https://dashboard.knock.app
+
+# Secret key for signing session cookies (generate with: openssl rand -hex 32)
+COOKIE_ENCRYPTION_KEY=your_random_32_byte_hex_secret_here

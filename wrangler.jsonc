@@ -1,0 +1,49 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "knock-mcp",
+  "main": "src/index.ts",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "compatibility_date": "2025-02-01",
+  "migrations": [
+    {
+      "new_sqlite_classes": ["KnockMCP"],
+      "tag": "v1"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "KnockMCP",
+        "name": "MCP_OBJECT"
+      }
+    ]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "MCP_OAUTH_KV",
+      "id": "6bd2b6c4a2b6472391c5628904890d54"
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "mcp.knock.app",
+      "custom_domain": true
+    }
+  ],
+  "assets": {
+    "directory": "client/dist",
+    "binding": "ASSETS",
+    "html_handling": "none",
+    "not_found_handling": "none"
+  },
+  "vars": {
+    "KNOCK_AUTH_URL": "https://signin.knock.app",
+    "KNOCK_DASHBOARD_URL": "https://dashboard.knock.app"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "dev": {
+    "port": 8788
+  }
+}
