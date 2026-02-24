@@ -10,7 +10,7 @@ export interface Env {
 }
 
 export interface Props extends Record<string, unknown> {
-  accessToken: string;
+  tokenId: string;
   clientId?: string;
   userId?: string;
   email?: string;

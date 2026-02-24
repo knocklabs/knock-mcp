@@ -4,6 +4,7 @@ import * as jose from "jose";
 
 import type { Env, Props } from "./types";
 import { toolGroups } from "./tool-groups";
+import { storeKnockTokens } from "./token-store";
 import {
   addApprovedClient,
   bindStateToSession,
@@ -332,23 +333,36 @@ app.get("/callback", async (c) => {
   };
 
   const accessToken = tokenData.access_token;
+  const refreshToken = tokenData.refresh_token ?? null;
 
-  // Decode the JWT to extract the user ID and email
+  // Decode the JWT to extract the user ID, email, and token expiry
   let userId: string | undefined;
   let email: string | undefined;
+  let expiresAt: number = Math.floor(Date.now() / 1000) + 300; // default 5 minutes
   try {
     const claims = jose.decodeJwt(accessToken);
     userId = typeof claims.sub === "string" ? claims.sub : undefined;
     email = typeof claims.email === "string" ? claims.email : undefined;
+    if (typeof claims.exp === "number") expiresAt = claims.exp;
   } catch {
     // Non-JWT access token; proceed without claims
   }
 
-  // Store tokens and oauthReqInfo in KV temporarily, then redirect to tool selection
+  // Persist the Knock tokens in KV so they can be refreshed transparently on expiry
+  const tokenId = crypto.randomUUID();
+  await storeKnockTokens(c.env, tokenId, {
+    accessToken,
+    refreshToken,
+    expiresAt,
+    tokenEndpoint: metadata.token_endpoint,
+    upstreamClientId: clientId,
+  });
+
+  // Store session data in KV temporarily, then redirect to tool selection
   const sessionKey = crypto.randomUUID();
   await c.env.OAUTH_KV.put(
     `tool-auth:${sessionKey}`,
-    JSON.stringify({ accessToken, userId, email, clientId, oauthReqInfo }),
+    JSON.stringify({ tokenId, userId, email, clientId, oauthReqInfo }),
     { expirationTtl: 300 },
   );
 
@@ -429,8 +443,8 @@ app.post("/api/authorize-tools", async (c) => {
     if (!raw) return c.json({ error: "Session expired or invalid" }, 400);
     await c.env.OAUTH_KV.delete(`tool-auth:${session}`);
 
-    const { accessToken, userId, email, clientId, oauthReqInfo } = JSON.parse(raw) as {
-      accessToken: string;
+    const { tokenId, userId, email, clientId, oauthReqInfo } = JSON.parse(raw) as {
+      tokenId: string;
       clientId?: string;
       userId?: string;
       email?: string;
@@ -442,7 +456,7 @@ app.post("/api/authorize-tools", async (c) => {
       userId: userId ?? "unknown",
       metadata: {},
       scope: [],
-      props: { accessToken, clientId, userId, email, selectedGroups } satisfies Props,
+      props: { tokenId, clientId, userId, email, selectedGroups } satisfies Props,
     });
 
     return c.json({ redirectTo });

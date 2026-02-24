@@ -1,41 +1,64 @@
 # Knock MCP Server
 
-A [Model Context Protocol](https://modelcontextprotocol.io/) (MCP) server for [Knock](https://knock.app) that lets AI assistants manage notifications, workflows, channels, and more — all authenticated via Knock's OAuth flow.
+Knock's MCP server lets AI coding assistants manage your notification infrastructure — workflows, channels, templates, users, and more — directly from tools like Cursor, Claude Code, and Claude Desktop.
 
-## Features
+This remote MCP server acts as middleware to the Knock API, authenticated via Knock's OAuth flow and optimized for developer workflows.
 
-- **OAuth 2.1 + PKCE** — secure authorization using Knock's AuthKit, with dynamic client registration so no redirect URIs need pre-configuring
-- **Tool selection consent screen** — users choose exactly which capabilities to grant before authorizing
-- **Granular tool groups** — five intent-based groups map to the underlying Knock API categories:
+## Getting Started
 
-  | Group | What it does |
-  |---|---|
-  | Manage resources | Create and manage workflows, channels, templates, and other configuration |
-  | Commits | Commit and promote changes across environments |
-  | Debug | Inspect environments and view sent message logs |
-  | Manage data | Manage users, tenants, and object data |
-  | Documentation | Search Knock documentation and guides |
+Connect your AI assistant to Knock's MCP server in seconds. No local setup required.
 
-- **Deployed on Cloudflare Workers** with Durable Objects for stateful MCP sessions
+### Cursor
 
-## Architecture
+Add the following to your Cursor MCP configuration (`~/.cursor/mcp.json`):
 
-```
-MCP Client (e.g. Claude Desktop)
-    │
-    ▼ OAuth 2.1 + PKCE
-Cloudflare Worker (this repo)
-    │  ├─ /mcp          — MCP endpoint (Durable Object)
-    │  ├─ /authorize    — OAuth consent + tool selection UI
-    │  └─ /callback     — Token exchange with Knock AuthKit
-    │
-    ▼ Dynamic Client Registration
-Knock AuthKit (WorkOS)
+```json
+{
+  "mcpServers": {
+    "knock": {
+      "type": "http",
+      "url": "https://mcp.knock.app/mcp"
+    }
+  }
+}
 ```
 
-The worker acts as both the OAuth authorization server (to MCP clients) and an OAuth client (to Knock's AuthKit). Dynamic client registration means the worker registers itself with AuthKit at runtime with the exact callback URL it's using — no static client IDs or pre-registered redirect URIs needed.
+### Claude Desktop
 
-## Setup
+Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "knock": {
+      "type": "http",
+      "url": "https://mcp.knock.app/mcp"
+    }
+  }
+}
+```
+
+On first connection, your browser will open to authorize and select which capabilities to grant.
+
+## Capabilities
+
+When connecting, you choose exactly which tool groups to enable:
+
+| Group | Description |
+|---|---|
+| **Manage resources** | Create and manage notification workflows, channels, templates, email layouts, partials, and other configuration |
+| **Commits** | Commit and promote changes across environments |
+| **Debug** | Inspect environments and view sent message logs |
+| **Manage data** | Manage users, tenants, and object data |
+| **Documentation** | Search Knock documentation and guides |
+
+## Authentication
+
+The MCP server uses **OAuth 2.1 + PKCE** via Knock's AuthKit. When you first connect, you'll be directed to authorize the connection and select which capabilities to grant. Your credentials are never stored by the MCP server — it exchanges tokens with Knock's API on your behalf.
+
+## Self-Hosting & Local Development
+
+If you need to run the MCP server yourself (e.g. for development or custom deployments), read on.
 
 ### Prerequisites
 
@@ -69,8 +92,6 @@ Copy the returned `id` into `wrangler.jsonc`:
 
 ### 3. Configure environment variables
 
-Copy `.dev.vars.example` to `.dev.vars` and fill in the values:
-
 ```bash
 cp .dev.vars.example .dev.vars
 ```
@@ -78,7 +99,7 @@ cp .dev.vars.example .dev.vars
 | Variable | Description |
 |---|---|
 | `KNOCK_AUTH_URL` | Your Knock AuthKit domain (e.g. `https://your-app.authkit.app`) |
-| `KNOCK_DASHBOARD_URL` | Knock dashboard URL — used for branding (`https://dashboard.knock.app`) |
+| `KNOCK_DASHBOARD_URL` | Knock dashboard URL (e.g. `https://dashboard.knock.app`) |
 | `COOKIE_ENCRYPTION_KEY` | Random 32-byte hex string — generate with `openssl rand -hex 32` |
 | `DEV_ORIGIN` | Set to `http://localhost:8788` for local dev only |
 
@@ -90,10 +111,9 @@ wrangler secret put KNOCK_DASHBOARD_URL
 wrangler secret put COOKIE_ENCRYPTION_KEY
 ```
 
-### 4. Local development
+### 4. Run locally
 
 ```bash
-# Build the consent UI and start the worker
 npm run build:client
 npm run dev
 ```
@@ -104,7 +124,7 @@ The server starts at `http://localhost:8788`. Test with the [MCP Inspector](http
 npx @modelcontextprotocol/inspector
 ```
 
-Connect with transport `Streamable HTTP` at `http://localhost:8788/mcp`.
+Connect using transport `Streamable HTTP` at `http://localhost:8788/mcp`.
 
 ### 5. Deploy
 
@@ -112,7 +132,7 @@ Connect with transport `Streamable HTTP` at `http://localhost:8788/mcp`.
 npm run deploy
 ```
 
-This builds the client, then deploys to Cloudflare Workers. Update `wrangler.jsonc` with your custom domain:
+This builds the client UI and deploys to Cloudflare Workers. Update `wrangler.jsonc` with your custom domain:
 
 ```jsonc
 "routes": [
@@ -123,24 +143,22 @@ This builds the client, then deploys to Cloudflare Workers. Update `wrangler.jso
 ]
 ```
 
-## Connecting an MCP client
+## Architecture
 
-### Claude Desktop
-
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "knock": {
-      "type": "http",
-      "url": "https://mcp.your-domain.com/mcp"
-    }
-  }
-}
+```
+MCP Client (e.g. Cursor, Claude Desktop)
+    │
+    ▼ OAuth 2.1 + PKCE
+Cloudflare Worker (this repo)
+    │  ├─ /mcp          — MCP endpoint (Durable Object)
+    │  ├─ /authorize    — OAuth consent + tool selection UI
+    │  └─ /callback     — Token exchange with Knock AuthKit
+    │
+    ▼
+Knock API
 ```
 
-On first connection, Claude will open a browser window to authorize and select which capabilities to grant.
+The worker is deployed on Cloudflare Workers with Durable Objects for stateful MCP sessions. It acts as both the OAuth authorization server (to MCP clients) and an OAuth client (to Knock's AuthKit). Dynamic client registration means the worker registers itself with AuthKit at runtime — no static client IDs or pre-registered redirect URIs needed.
 
 ## License
 

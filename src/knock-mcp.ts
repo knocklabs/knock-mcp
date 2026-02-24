@@ -8,6 +8,7 @@ import { tools, allTools, type KnockToolType } from "@knocklabs/agent-toolkit/co
 
 import type { Env, Props } from "./types";
 import { resolveGroupsToCategories } from "./tool-groups";
+import { getOrRefreshKnockToken } from "./token-store";
 
 function createKnockClient(config: { serviceToken: string; clientId?: string }) {
   const defaultHeaders: Record<string, string> = {};
@@ -33,8 +34,11 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
   server = new McpServer({ name: "Knock", version: "1.0.0" });
 
   async init() {
-    const config = { serviceToken: this.props.accessToken };
-    const knockClient = createKnockClient({ ...config, clientId: this.props.clientId });
+    const getClient = async () => {
+      const accessToken = await getOrRefreshKnockToken(this.env, this.props.tokenId);
+      const config = { serviceToken: accessToken };
+      return { knockClient: createKnockClient({ ...config, clientId: this.props.clientId }), config };
+    };
 
     const enabledTools = this.props.selectedGroups
       ? resolveGroupsToCategories(this.props.selectedGroups).flatMap((cat) =>
@@ -51,6 +55,7 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
         tool.method,
         { description: tool.description, inputSchema: toolParams.shape },
         async (arg: unknown) => {
+          const { knockClient, config } = await getClient();
           const res = await tool.bindExecute(knockClient, config)(arg);
           return {
             content: [{ type: "text" as const, text: JSON.stringify(res) }],
