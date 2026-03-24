@@ -4,14 +4,14 @@
   "private": true,
   "scripts": {
     "build:client": "cd client && npm ci && npm run build",
-    "build": "npm run build:client && tsc -p .",
+    "build": "npm run build:client && npm run cf-typegen && tsc -p .",
     "cf-typegen": "wrangler types",
     "deploy": "npm run build:client && wrangler deploy",
     "dev": "wrangler dev",
     "inspector": "mcp-inspector --config mcp-inspector.json",
     "dev:client": "cd client && npm run dev",
     "start": "wrangler dev",
-    "type-check": "tsc --noEmit",
+    "type-check": "npm run cf-typegen && tsc --noEmit",
     "format": "prettier --write \"src/**/*.ts\" \"client/src/**/*.{ts,tsx}\""
   },
   "dependencies": {
