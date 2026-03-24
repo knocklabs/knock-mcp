@@ -105,15 +105,17 @@ cp .dev.vars.example .dev.vars
 | `COOKIE_ENCRYPTION_KEY` | Random 32-byte hex string — generate with `openssl rand -hex 32` |
 | `DEV_ORIGIN` | Set to `http://localhost:8788` for local dev only |
 
-For production, set these as Wrangler secrets:
+Production URLs are set in [`wrangler.jsonc`](wrangler.jsonc) under `vars` (`KNOCK_AUTH_URL`, `KNOCK_DASHBOARD_URL`). Override them with secrets only if you need per-environment values.
+
+**`COOKIE_ENCRYPTION_KEY` must be a Wrangler secret** — do not add it to `vars`. Cloudflare rejects the same binding name as both a var and a secret.
 
 ```bash
-wrangler secret put KNOCK_AUTH_URL
-wrangler secret put KNOCK_DASHBOARD_URL
 wrangler secret put COOKIE_ENCRYPTION_KEY
 ```
 
-[`wrangler.jsonc`](wrangler.jsonc) lists `DEV_ORIGIN` and `COOKIE_ENCRYPTION_KEY` under `vars` as empty strings so `wrangler types` (and CI builds) always emit them on `Env`. `.dev.vars` overrides those for local dev; in production, `wrangler secret put COOKIE_ENCRYPTION_KEY` overrides the placeholder (you do not need a production `DEV_ORIGIN` unless you use the same origin-rewrite pattern).
+Use a random 32-byte hex value (e.g. `openssl rand -hex 32`). After changing config, deploy so the Worker no longer declares a conflicting var.
+
+TypeScript always includes `COOKIE_ENCRYPTION_KEY` and `DEV_ORIGIN` on `Env` via [`src/env.d.ts`](src/env.d.ts), so CI and `wrangler types` (which may omit vars that only exist in `.dev.vars`) still type-check. You do not need a production `DEV_ORIGIN` unless you use the same origin-rewrite pattern as local dev.
 
 ### 4. Run locally
 

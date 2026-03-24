@@ -38,11 +38,7 @@
   },
   "vars": {
     "KNOCK_AUTH_URL": "https://signin.knock.app",
-    "KNOCK_DASHBOARD_URL": "https://dashboard.knock.app",
-    // Placeholders so `wrangler types` (e.g. CI without .dev.vars) includes these on Env.
-    // Local: override in .dev.vars. Production: set COOKIE_ENCRYPTION_KEY via `wrangler secret put` (overrides this var).
-    "DEV_ORIGIN": "",
-    "COOKIE_ENCRYPTION_KEY": ""
+    "KNOCK_DASHBOARD_URL": "https://dashboard.knock.app"
   },
   "observability": {
     "enabled": true
