@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "knock-local": {
+      "type": "streamable-http",
+      "url": "http://localhost:8788/mcp"
+    }
+  }
+}

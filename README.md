@@ -73,6 +73,8 @@ npm install
 npm install --prefix client
 ```
 
+The root [`.npmrc`](.npmrc) sets `legacy-peer-deps=true` because `agents` declares optional peer packages (for example `ai`) that this Worker does not use. `@modelcontextprotocol/sdk` is pinned to the same version as `agents` so TypeScript sees a single `McpServer` type.
+
 ### 2. Create a KV namespace
 
 ```bash
@@ -111,6 +113,8 @@ wrangler secret put KNOCK_DASHBOARD_URL
 wrangler secret put COOKIE_ENCRYPTION_KEY
 ```
 
+[`wrangler.jsonc`](wrangler.jsonc) lists `DEV_ORIGIN` and `COOKIE_ENCRYPTION_KEY` under `vars` as empty strings so `wrangler types` (and CI builds) always emit them on `Env`. `.dev.vars` overrides those for local dev; in production, `wrangler secret put COOKIE_ENCRYPTION_KEY` overrides the placeholder (you do not need a production `DEV_ORIGIN` unless you use the same origin-rewrite pattern).
+
 ### 4. Run locally
 
 ```bash
@@ -118,13 +122,36 @@ npm run build:client
 npm run dev
 ```
 
-The server starts at `http://localhost:8788`. Test with the [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
+The worker serves MCP at `http://localhost:8788/mcp`. Ensure `.dev.vars` sets `DEV_ORIGIN=http://localhost:8788` so OAuth redirects and metadata match your machine.
+
+### 4b. Debug with MCP Inspector
+
+The repo includes [`mcp-inspector.json`](mcp-inspector.json), which points the [MCP Inspector](https://github.com/modelcontextprotocol/inspector) at your local Streamable HTTP endpoint.
+
+1. **Terminal A** — run the worker (after a client build, if assets changed):
+
+   ```bash
+   npm run build:client
+   npm run dev
+   ```
+
+2. **Terminal B** — start the inspector (installs via devDependency on first `npm install`):
+
+   ```bash
+   npm run inspector
+   ```
+
+3. Open **http://localhost:6274** in your browser. The UI should open with **Streamable HTTP** and `http://localhost:8788/mcp` already selected (from the config).
+
+4. Click **Connect**. Complete the Knock OAuth and tool-selection flow in the browser when prompted.
+
+The inspector also runs an MCP proxy on **http://localhost:6277** by default. Override ports if needed, for example:
 
 ```bash
-npx @modelcontextprotocol/inspector
+CLIENT_PORT=8080 SERVER_PORT=9000 npm run inspector
 ```
 
-Connect using transport `Streamable HTTP` at `http://localhost:8788/mcp`.
+**Note:** `@modelcontextprotocol/inspector` currently recommends **Node.js 22.7.5+**; use a recent Node version for the inspector UI.
 
 ### 5. Deploy
 

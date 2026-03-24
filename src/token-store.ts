@@ -1,7 +1,5 @@
 import * as jose from "jose";
 
-import type { Env } from "./types";
-
 const TOKEN_REFRESH_BUFFER_SECONDS = 60;
 const TOKEN_KV_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
