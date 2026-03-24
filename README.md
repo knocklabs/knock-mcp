@@ -113,6 +113,8 @@ wrangler secret put KNOCK_DASHBOARD_URL
 wrangler secret put COOKIE_ENCRYPTION_KEY
 ```
 
+[`wrangler.jsonc`](wrangler.jsonc) lists `DEV_ORIGIN` and `COOKIE_ENCRYPTION_KEY` under `vars` as empty strings so `wrangler types` (and CI builds) always emit them on `Env`. `.dev.vars` overrides those for local dev; in production, `wrangler secret put COOKIE_ENCRYPTION_KEY` overrides the placeholder (you do not need a production `DEV_ORIGIN` unless you use the same origin-rewrite pattern).
+
 ### 4. Run locally
 
 ```bash
