@@ -11,6 +11,7 @@ const provider = new OAuthProvider({
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/token",
   clientRegistrationEndpoint: "/register",
+  clientIdMetadataDocumentEnabled: true,
 });
 
 // Rewrite /.well-known/oauth-authorization-server to use the actual request
