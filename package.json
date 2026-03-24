@@ -8,27 +8,35 @@
     "cf-typegen": "wrangler types",
     "deploy": "npm run build:client && wrangler deploy",
     "dev": "wrangler dev",
+    "inspector": "mcp-inspector --config mcp-inspector.json",
     "dev:client": "cd client && npm run dev",
     "start": "wrangler dev",
     "type-check": "tsc --noEmit",
     "format": "prettier --write \"src/**/*.ts\" \"client/src/**/*.{ts,tsx}\""
   },
   "dependencies": {
-    "@cloudflare/workers-oauth-provider": "^0.2.3",
+    "@cloudflare/workers-oauth-provider": "^0.3.0",
     "@knocklabs/agent-toolkit": "^0.5.4",
-    "@knocklabs/mgmt": "^0.17.1",
-    "@knocklabs/node": "^1.29.0",
-    "@modelcontextprotocol/sdk": "^1.7.0",
-    "agents": "^0.0.93",
-    "hono": "^4.7.10",
-    "jose": "^5.10.0",
-    "zod": "^3.24.2"
+    "@knocklabs/mgmt": "^0.23.0",
+    "@knocklabs/node": "^1.29.1",
+    "@modelcontextprotocol/sdk": "1.26.0",
+    "agents": "^0.8.0",
+    "hono": "^4.12.9",
+    "jose": "^6.2.2",
+    "zod": "^4.3.6"
+  },
+  "overrides": {
+    "@knocklabs/agent-toolkit": {
+      "@knocklabs/mgmt": "$@knocklabs/mgmt",
+      "@knocklabs/node": "$@knocklabs/node"
+    }
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250224.0",
-    "@types/node": "^25.3.0",
+    "@modelcontextprotocol/inspector": "^0.21.1",
+    "@cloudflare/workers-types": "^4.20260317.1",
+    "@types/node": "^25.5.0",
     "prettier": "^3.8.1",
-    "typescript": "^5.8.2",
-    "wrangler": "^4.0.0"
+    "typescript": "^6.0.2",
+    "wrangler": "^4.76.0"
   }
 }

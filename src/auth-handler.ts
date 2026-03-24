@@ -2,7 +2,7 @@ import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provid
 import { Hono } from "hono";
 import * as jose from "jose";
 
-import type { Env, Props } from "./types";
+import type { Props } from "./types";
 import { toolGroups } from "./tool-groups";
 import { storeKnockTokens } from "./token-store";
 import {
@@ -94,7 +94,7 @@ async function buildKnockAuthorizationUrl(
 ): Promise<string> {
   // Use DEV_ORIGIN when set — wrangler rewrites request.url to mcp.knock.app
   // which would produce an http:// non-localhost redirect URI that WorkOS rejects.
-  const origin = env.DEV_ORIGIN ?? new URL(requestUrl).origin;
+  const origin = env.DEV_ORIGIN || new URL(requestUrl).origin;
   const redirectUri = `${origin}/callback`;
   const [metadata, clientId, { codeVerifier, codeChallenge }] = await Promise.all([
     getKnockOAuthMetadata(env.KNOCK_AUTH_URL),
@@ -132,7 +132,7 @@ app.options("/.well-known/oauth-protected-resource", (c) => {
 });
 
 app.get("/.well-known/oauth-protected-resource", (c) => {
-  const origin = c.env.DEV_ORIGIN ?? new URL(c.req.url).origin;
+  const origin = c.env.DEV_ORIGIN || new URL(c.req.url).origin;
   return c.json(
     {
       resource: `${origin}/mcp`,
@@ -301,7 +301,7 @@ app.get("/callback", async (c) => {
   // Exchange authorization code for tokens via Knock's token endpoint
   // Must match the redirect URI used during authorization — use DEV_ORIGIN to
   // avoid the wrangler-rewritten mcp.knock.app domain in local dev.
-  const origin = c.env.DEV_ORIGIN ?? new URL(c.req.url).origin;
+  const origin = c.env.DEV_ORIGIN || new URL(c.req.url).origin;
   const redirectUri = `${origin}/callback`;
   const [metadata, clientId] = await Promise.all([
     getKnockOAuthMetadata(c.env.KNOCK_AUTH_URL),

@@ -6,7 +6,8 @@
     "moduleResolution": "bundler",
     "strict": true,
     "skipLibCheck": true,
-    "types": ["@types/node"]
+    "types": ["@types/node"],
+    "rootDir": "."
   },
   "include": ["src", "worker-configuration.d.ts"]
 }
