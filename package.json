@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "build:client": "cd client && npm run build",
+    "build:client": "cd client && npm ci && npm run build",
     "build": "npm run build:client && tsc -p .",
     "cf-typegen": "wrangler types",
     "deploy": "npm run build:client && wrangler deploy",
