@@ -38,7 +38,8 @@
   },
   "vars": {
     "KNOCK_AUTH_URL": "https://signin.knock.app",
-    "KNOCK_DASHBOARD_URL": "https://dashboard.knock.app"
+    "KNOCK_DASHBOARD_URL": "https://dashboard.knock.app",
+    "ENVIRONMENT": "production"
   },
   "observability": {
     "enabled": true
