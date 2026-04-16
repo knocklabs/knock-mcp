@@ -1,8 +1,14 @@
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
+import * as Sentry from "@sentry/cloudflare";
 
 import { AuthHandler } from "./auth-handler";
-import { KnockMCP } from "./knock-mcp";
-export { KnockMCP };
+import { KnockMCP as KnockMCPBase } from "./knock-mcp";
+import { sentryConfig } from "./sentry";
+
+export const KnockMCP = Sentry.instrumentDurableObjectWithSentry(
+  sentryConfig,
+  KnockMCPBase as unknown as new (state: DurableObjectState, env: Env) => KnockMCPBase,
+) as unknown as typeof KnockMCPBase;
 
 const provider = new OAuthProvider({
   apiRoute: "/mcp",
@@ -18,7 +24,7 @@ const provider = new OAuthProvider({
 // origin instead of the production domain baked in by the OAuth provider.
 // This is essential for local dev where the wrangler routes config causes the
 // provider to embed mcp.knock.app into all endpoint URLs.
-export default {
+const handler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
     if (url.pathname === "/.well-known/oauth-authorization-server") {
@@ -80,3 +86,5 @@ export default {
     return response;
   },
 } satisfies ExportedHandler<Env>;
+
+export default Sentry.withSentry(sentryConfig, handler);
