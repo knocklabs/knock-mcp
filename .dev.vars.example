@@ -11,3 +11,9 @@ KNOCK_DASHBOARD_URL=https://dashboard.knock.app
 
 # Secret key for signing session cookies (generate with: openssl rand -hex 32)
 COOKIE_ENCRYPTION_KEY=your_random_32_byte_hex_secret_here
+
+# Sentry DSN for error reporting (leave blank to disable in dev)
+SENTRY_DSN=
+
+# Environment tag attached to Sentry events (development|staging|production)
+ENVIRONMENT=development

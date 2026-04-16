@@ -104,6 +104,8 @@ cp .dev.vars.example .dev.vars
 | `KNOCK_DASHBOARD_URL` | Knock dashboard URL (e.g. `https://dashboard.knock.app`) |
 | `COOKIE_ENCRYPTION_KEY` | Random 32-byte hex string — generate with `openssl rand -hex 32` |
 | `DEV_ORIGIN` | Set to `http://localhost:8788` for local dev only |
+| `SENTRY_DSN` | Sentry DSN for error reporting; leave blank to disable |
+| `ENVIRONMENT` | Tag attached to Sentry events (`development`, `staging`, `production`) |
 
 Production URLs are set in [`wrangler.jsonc`](wrangler.jsonc) under `vars` (`KNOCK_AUTH_URL`, `KNOCK_DASHBOARD_URL`). Override them with secrets only if you need per-environment values.
 
@@ -111,6 +113,12 @@ Production URLs are set in [`wrangler.jsonc`](wrangler.jsonc) under `vars` (`KNO
 
 ```bash
 wrangler secret put COOKIE_ENCRYPTION_KEY
+```
+
+**`SENTRY_DSN` should be a Wrangler secret** in any environment where errors are reported:
+
+```bash
+wrangler secret put SENTRY_DSN
 ```
 
 Use a random 32-byte hex value (e.g. `openssl rand -hex 32`). After changing config, deploy so the Worker no longer declares a conflicting var.

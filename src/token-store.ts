@@ -1,4 +1,5 @@
 import * as jose from "jose";
+import * as Sentry from "@sentry/cloudflare";
 
 const TOKEN_REFRESH_BUFFER_SECONDS = 60;
 const TOKEN_KV_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
@@ -54,6 +55,10 @@ export async function getOrRefreshKnockToken(
   if (!response.ok) {
     const errorText = await response.text();
     console.error("Knock token refresh failed:", errorText);
+    Sentry.captureMessage("Knock token refresh failed", {
+      level: "error",
+      extra: { status: response.status, body: errorText, tokenEndpoint: data.tokenEndpoint },
+    });
     throw new Error("Knock token refresh failed. Please re-authenticate.");
   }
 
