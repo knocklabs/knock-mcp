@@ -42,7 +42,6 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
 
     Sentry.setUser({ id: props.userId, email: props.email });
     Sentry.setTag("knock.client_id", props.clientId);
-    Sentry.setTag("knock.selected_groups", (props.selectedGroups ?? []).join(","));
 
     const getClient = async () => {
       const accessToken = await getOrRefreshKnockToken(this.env, props.tokenId);
