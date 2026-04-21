@@ -8,4 +8,5 @@ interface Env {
   DEV_ORIGIN: string;
   COOKIE_ENCRYPTION_KEY: string;
   SENTRY_DSN?: string;
+  INFRA_ENV: string;
 }

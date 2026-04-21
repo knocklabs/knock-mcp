@@ -16,4 +16,4 @@ COOKIE_ENCRYPTION_KEY=your_random_32_byte_hex_secret_here
 SENTRY_DSN=
 
 # Environment tag attached to Sentry events (development|staging|production)
-ENVIRONMENT=development
+INFRA_ENV=development

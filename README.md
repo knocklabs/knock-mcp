@@ -105,7 +105,7 @@ cp .dev.vars.example .dev.vars
 | `COOKIE_ENCRYPTION_KEY` | Random 32-byte hex string — generate with `openssl rand -hex 32` |
 | `DEV_ORIGIN` | Set to `http://localhost:8788` for local dev only |
 | `SENTRY_DSN` | Sentry DSN for error reporting; leave blank to disable |
-| `ENVIRONMENT` | Tag attached to Sentry events (`development`, `staging`, `production`) |
+| `INFRA_ENV` | Tag attached to Sentry events (`development`, `staging`, `production`) |
 
 Production URLs are set in [`wrangler.jsonc`](wrangler.jsonc) under `vars` (`KNOCK_AUTH_URL`, `KNOCK_DASHBOARD_URL`). Override them with secrets only if you need per-environment values.
 
