@@ -274,7 +274,9 @@ app.get("/callback", async (c) => {
     oauthReqInfo = result.oauthReqInfo;
     clearSessionCookie = result.clearCookie;
   } catch (error: unknown) {
-    Sentry.captureException(error, { tags: { route: "GET /callback", stage: "validateOAuthState" } });
+    Sentry.captureException(error, {
+      tags: { route: "GET /callback", stage: "validateOAuthState" },
+    });
     if (error instanceof OAuthError) {
       return error.toResponse();
     }
