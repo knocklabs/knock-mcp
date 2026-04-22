@@ -3,6 +3,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import KnockMgmt from "@knocklabs/mgmt";
 import { Knock } from "@knocklabs/node";
+import * as Sentry from "@sentry/cloudflare";
 
 import { tools, allTools, type KnockToolType } from "@knocklabs/agent-toolkit/core";
 
@@ -31,13 +32,16 @@ function createKnockClient(config: { serviceToken: string; clientId?: string }) 
 }
 
 export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
-  server = new McpServer({ name: "Knock", version: "1.1.0" });
+  server = Sentry.wrapMcpServerWithSentry(new McpServer({ name: "Knock", version: "1.1.0" }));
 
   async init() {
     const props = this.props;
     if (!props?.tokenId) {
       throw new Error("MCP session missing tokenId; cannot initialize tools.");
     }
+
+    Sentry.setUser({ id: props.userId, email: props.email });
+    Sentry.setTag("knock.client_id", props.clientId);
 
     const getClient = async () => {
       const accessToken = await getOrRefreshKnockToken(this.env, props.tokenId);
@@ -59,6 +63,7 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
         tool.method,
         { description: tool.description, inputSchema: toolParams.shape },
         async (arg: unknown) => {
+          Sentry.setTag("knock.tool", tool.method);
           const { knockClient, config } = await getClient();
           // Toolkit types may resolve @knocklabs/* from a different copy (e.g. npm link).
           const res = await tool.bindExecute(

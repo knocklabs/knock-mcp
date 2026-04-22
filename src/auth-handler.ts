@@ -1,6 +1,7 @@
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { Hono } from "hono";
 import * as jose from "jose";
+import * as Sentry from "@sentry/cloudflare";
 
 import type { Props } from "./types";
 import { toolGroups } from "./tool-groups";
@@ -151,6 +152,7 @@ app.get("/authorize", async (c) => {
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     console.error("[authorize] parseAuthRequest failed:", message);
+    Sentry.captureException(err, { tags: { route: "GET /authorize", stage: "parseAuthRequest" } });
     return c.text(`Authorization error: ${message}`, 400);
   }
 
@@ -254,6 +256,7 @@ app.post("/authorize", async (c) => {
     return new Response(JSON.stringify({ redirectTo: authUrl }), { status: 200, headers });
   } catch (error: unknown) {
     console.error("POST /authorize error:", error);
+    Sentry.captureException(error, { tags: { route: "POST /authorize" } });
     if (error instanceof OAuthError) {
       return error.toResponse();
     }
@@ -271,6 +274,9 @@ app.get("/callback", async (c) => {
     oauthReqInfo = result.oauthReqInfo;
     clearSessionCookie = result.clearCookie;
   } catch (error: unknown) {
+    Sentry.captureException(error, {
+      tags: { route: "GET /callback", stage: "validateOAuthState" },
+    });
     if (error instanceof OAuthError) {
       return error.toResponse();
     }
@@ -323,6 +329,11 @@ app.get("/callback", async (c) => {
   if (!tokenResponse.ok) {
     const errorText = await tokenResponse.text();
     console.error("Token exchange failed:", errorText);
+    Sentry.captureMessage("Knock token exchange failed", {
+      level: "error",
+      tags: { route: "GET /callback", stage: "token_exchange" },
+      extra: { status: tokenResponse.status, body: errorText },
+    });
     return c.text("Failed to exchange authorization code", 400);
   }
 
@@ -462,6 +473,7 @@ app.post("/api/authorize-tools", async (c) => {
     return c.json({ redirectTo });
   } catch (error: unknown) {
     console.error("POST /api/authorize-tools error:", error);
+    Sentry.captureException(error, { tags: { route: "POST /api/authorize-tools" } });
     const message = error instanceof Error ? error.message : "Unknown error";
     return c.json({ error: `Internal server error: ${message}` }, 500);
   }
