@@ -11,11 +11,10 @@ import type { Props } from "./types";
 import { resolveGroupsToCategories } from "./tool-groups";
 import { getOrRefreshKnockToken } from "./token-store";
 
-function createKnockClient(config: { serviceToken: string; clientId?: string }) {
-  const defaultHeaders: Record<string, string> = {};
-  if (config.clientId) {
-    defaultHeaders["x-knock-client-id"] = config.clientId;
-  }
+function createKnockClient(config: { serviceToken: string; clientId: string }) {
+  const defaultHeaders: Record<string, string> = {
+    "x-knock-client-id": config.clientId,
+  };
 
   const client = new KnockMgmt({
     serviceToken: config.serviceToken,
@@ -37,7 +36,13 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
   async init() {
     const props = this.props;
     if (!props?.tokenId) {
-      throw new Error("MCP session missing tokenId; cannot initialize tools.");
+      throw new Error("MCP session missing tokenId; please re-authenticate.");
+    }
+    if (!props.clientId) {
+      // Sessions created before clientId was added to Props (pre-2026-03-24) land here.
+      // Their requests to mAPI would silently 401 because we wouldn't send x-knock-client-id;
+      // fail loudly instead so the MCP client surfaces the need to re-auth.
+      throw new Error("MCP session missing clientId; please re-authenticate.");
     }
 
     Sentry.setUser({ id: props.userId, email: props.email });
@@ -45,8 +50,8 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
 
     const getClient = async () => {
       const accessToken = await getOrRefreshKnockToken(this.env, props.tokenId);
-      const config = { serviceToken: accessToken };
-      return { knockClient: createKnockClient({ ...config, clientId: props.clientId }), config };
+      const config = { serviceToken: accessToken, clientId: props.clientId };
+      return { knockClient: createKnockClient(config), config };
     };
 
     const enabledTools = props.selectedGroups

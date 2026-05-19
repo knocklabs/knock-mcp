@@ -462,6 +462,16 @@ app.post("/api/authorize-tools", async (c) => {
       oauthReqInfo: AuthRequest;
     };
 
+    if (!clientId) {
+      // /callback always writes clientId from registerUpstreamClient; a missing value
+      // means the session predates that field or the KV row was corrupted. Either way,
+      // the user must restart the authorization flow.
+      return c.json(
+        { error: "Session is missing client_id; please restart the authorization flow." },
+        400,
+      );
+    }
+
     const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
       request: oauthReqInfo,
       userId: userId ?? "unknown",
