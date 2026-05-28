@@ -4,7 +4,8 @@ import * as jose from "jose";
 import * as Sentry from "@sentry/cloudflare";
 
 import type { Props } from "./types";
-import { toolGroups } from "./tool-groups";
+import { toolGroups, resolveEffectiveSelectedGroups } from "./tool-groups";
+import { resolveMapiAccessMode } from "./code-mode/access";
 import { storeKnockTokens } from "./token-store";
 import {
   addApprovedClient,
@@ -432,9 +433,10 @@ app.post("/api/authorize-tools", async (c) => {
       session: string;
       csrfToken: string;
       selectedGroups: string[];
+      mapiAccessMode?: string;
     }>();
 
-    const { session, csrfToken, selectedGroups } = body;
+    const { session, csrfToken, selectedGroups, mapiAccessMode } = body;
 
     if (!session || !csrfToken || !Array.isArray(selectedGroups)) {
       return c.json({ error: "Missing required fields" }, 400);
@@ -472,12 +474,22 @@ app.post("/api/authorize-tools", async (c) => {
       );
     }
 
+    const effectiveGroups = resolveEffectiveSelectedGroups(selectedGroups);
+    const resolvedMapiAccessMode = resolveMapiAccessMode(effectiveGroups, mapiAccessMode);
+
     const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
       request: oauthReqInfo,
       userId: userId ?? "unknown",
       metadata: {},
       scope: [],
-      props: { tokenId, clientId, userId, email, selectedGroups } satisfies Props,
+      props: {
+        tokenId,
+        clientId,
+        userId,
+        email,
+        selectedGroups: effectiveGroups,
+        ...(resolvedMapiAccessMode !== undefined ? { mapiAccessMode: resolvedMapiAccessMode } : {}),
+      } satisfies Props,
     });
 
     return c.json({ redirectTo });

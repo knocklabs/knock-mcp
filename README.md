@@ -42,11 +42,12 @@ On first connection, your browser will open to authorize and select which capabi
 
 ## Capabilities
 
-When connecting, you choose exactly which tool groups to enable:
+When connecting, you choose exactly which tool groups to enable. **By default**, only **Management API (code mode)** is on; the classic per-resource tools are opt-in.
 
 | Group | Description |
 |---|---|
-| **Manage resources** | Create and manage notification workflows, channels, templates, email layouts, partials, and other configuration |
+| **Management API (code mode)** | `search_mapi` and `execute_mapi` — explore the [OpenAPI spec](https://control.knock.app/v1/openapi) and call the Knock Management API from sandboxed JavaScript ([Code Mode](https://blog.cloudflare.com/code-mode-mcp/)). On connect, choose **Read only** (GET) or **Read & write**. A future **public API** variant will use the `search_api` / `execute_api` prefix. |
+| **Manage resources** | Create and manage notification workflows, channels, templates, email layouts, partials, and other configuration (classic toolkit) |
 | **Commits** | Commit and promote changes across environments |
 | **Debug** | Inspect environments and view sent message logs |
 | **Manage data** | Manage users, tenants, and object data |
@@ -78,7 +79,7 @@ The root [`.npmrc`](.npmrc) sets `legacy-peer-deps=true` because `agents` declar
 ### 2. Create a KV namespace
 
 ```bash
-wrangler kv namespace create MCP_OAUTH_KV
+wrangler kv namespace create OAUTH_KV
 ```
 
 Copy the returned `id` into `wrangler.jsonc`:
@@ -86,7 +87,7 @@ Copy the returned `id` into `wrangler.jsonc`:
 ```jsonc
 "kv_namespaces": [
   {
-    "binding": "MCP_OAUTH_KV",
+    "binding": "OAUTH_KV",
     "id": "your-namespace-id-here"
   }
 ]
@@ -102,10 +103,13 @@ cp .dev.vars.example .dev.vars
 |---|---|
 | `KNOCK_AUTH_URL` | Your Knock AuthKit domain (e.g. `https://your-app.authkit.app`) |
 | `KNOCK_DASHBOARD_URL` | Knock dashboard URL (e.g. `https://dashboard.knock.app`) |
+| `KNOCK_CONTROL_URL` | Management API control plane (e.g. `https://control.knock.app`) — used for Code Mode OpenAPI fetch and `execute_mapi` |
 | `COOKIE_ENCRYPTION_KEY` | Random 32-byte hex string — generate with `openssl rand -hex 32` |
 | `DEV_ORIGIN` | Set to `http://localhost:8788` for local dev only |
 | `SENTRY_DSN` | Sentry DSN for error reporting; leave blank to disable |
 | `INFRA_ENV` | Tag attached to Sentry events (`development`, `staging`, `production`) |
+
+**Dynamic Worker loader (Code Mode):** this Worker declares a [`worker_loaders`](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) binding named `LOADER` in [`wrangler.jsonc`](wrangler.jsonc) for [`@cloudflare/codemode`](https://github.com/cloudflare/agents/tree/main/packages/codemode). Use a current `compatibility_date` and a recent `wrangler` / Workers runtime.
 
 Production URLs are set in [`wrangler.jsonc`](wrangler.jsonc) under `vars` (`KNOCK_AUTH_URL`, `KNOCK_DASHBOARD_URL`). Override them with secrets only if you need per-environment values.
 
@@ -123,7 +127,7 @@ wrangler secret put SENTRY_DSN
 
 Use a random 32-byte hex value (e.g. `openssl rand -hex 32`). After changing config, deploy so the Worker no longer declares a conflicting var.
 
-TypeScript always includes `COOKIE_ENCRYPTION_KEY` and `DEV_ORIGIN` on `Env` via [`src/env.d.ts`](src/env.d.ts), so CI and `wrangler types` (which may omit vars that only exist in `.dev.vars`) still type-check. You do not need a production `DEV_ORIGIN` unless you use the same origin-rewrite pattern as local dev.
+The generated [`worker-configuration.d.ts`](worker-configuration.d.ts) (from `wrangler types`) types `Env` including secrets such as `COOKIE_ENCRYPTION_KEY` and optional `.dev.vars` entries. See [`src/env.d.ts`](src/env.d.ts) for notes. You do not need a production `DEV_ORIGIN` unless you use the same origin-rewrite pattern as local dev.
 
 ### 4. Run locally
 
@@ -190,12 +194,14 @@ Cloudflare Worker (this repo)
     │  ├─ /mcp          — MCP endpoint (Durable Object)
     │  ├─ /authorize    — OAuth consent + tool selection UI
     │  └─ /callback     — Token exchange with Knock AuthKit
+    │       search_mapi / execute_mapi  — Code Mode (OpenAPI + Dynamic Worker)
+    │       optional classic toolkit tools
     │
     ▼
-Knock API
+Knock Management API (control.knock.app) and other Knock APIs
 ```
 
-The worker is deployed on Cloudflare Workers with Durable Objects for stateful MCP sessions. It acts as both the OAuth authorization server (to MCP clients) and an OAuth client (to Knock's AuthKit). Dynamic client registration means the worker registers itself with AuthKit at runtime — no static client IDs or pre-registered redirect URIs needed.
+The worker is deployed on Cloudflare Workers with Durable Objects for stateful MCP sessions. It acts as both the OAuth authorization server (to MCP clients) and an OAuth client (to Knock's AuthKit). Dynamic client registration means the worker registers itself with AuthKit at runtime — no static client IDs or pre-registered redirect URIs needed. **Code Mode** uses [`@cloudflare/codemode`](https://github.com/cloudflare/agents/tree/main/packages/codemode) with a [Worker Loader](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) so LLM-generated code runs in an isolated sub-worker; `mapi.request()` on the host applies your OAuth token to `https://control.knock.app`.
 
 ## License
 

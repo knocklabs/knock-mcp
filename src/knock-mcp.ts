@@ -5,19 +5,26 @@ import KnockMgmt from "@knocklabs/mgmt";
 import { Knock } from "@knocklabs/node";
 import * as Sentry from "@sentry/cloudflare";
 
-import { tools, allTools, type KnockToolType } from "@knocklabs/agent-toolkit/core";
+import { tools, type KnockToolType } from "@knocklabs/agent-toolkit/core";
 
+import { registerMapiCodeMode } from "./code-mode/mapi";
+import { getKnockControlBaseUrl } from "./knock-control-url";
 import type { Props } from "./types";
-import { resolveGroupsToCategories } from "./tool-groups";
+import { CODE_MODE_MAPI_CATEGORY, resolveEffectiveSelectedGroups, resolveGroupsToCategories } from "./tool-groups";
 import { getOrRefreshKnockToken } from "./token-store";
 
-function createKnockClient(config: { serviceToken: string; clientId: string }) {
+function createKnockClient(config: {
+  serviceToken: string;
+  clientId: string;
+  baseURL: string;
+}) {
   const defaultHeaders: Record<string, string> = {
     "x-knock-client-id": config.clientId,
   };
 
   const client = new KnockMgmt({
     serviceToken: config.serviceToken,
+    baseURL: config.baseURL,
     defaultHeaders,
   });
 
@@ -31,7 +38,7 @@ function createKnockClient(config: { serviceToken: string; clientId: string }) {
 }
 
 export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
-  server = Sentry.wrapMcpServerWithSentry(new McpServer({ name: "Knock", version: "1.1.0" }));
+  server = Sentry.wrapMcpServerWithSentry(new McpServer({ name: "Knock", version: "1.2.0" }));
 
   async init() {
     const props = this.props;
@@ -51,14 +58,27 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
     const getClient = async () => {
       const accessToken = await getOrRefreshKnockToken(this.env, props.tokenId);
       const config = { serviceToken: accessToken, clientId: props.clientId };
-      return { knockClient: createKnockClient(config), config };
+      return {
+        knockClient: createKnockClient({
+          ...config,
+          baseURL: getKnockControlBaseUrl(this.env),
+        }),
+        config,
+      };
     };
 
-    const enabledTools = props.selectedGroups
-      ? resolveGroupsToCategories(props.selectedGroups).flatMap((cat) =>
-          Object.values((tools as Record<string, Record<string, KnockToolType>>)[cat] ?? {}),
-        )
-      : Object.values(allTools as Record<string, KnockToolType>);
+    const effectiveGroups = resolveEffectiveSelectedGroups(props.selectedGroups);
+    const categories = resolveGroupsToCategories(effectiveGroups);
+
+    if (categories.includes(CODE_MODE_MAPI_CATEGORY)) {
+      registerMapiCodeMode(this.server, this.env, props);
+    }
+
+    const toolkitCategories = categories.filter((c) => !c.startsWith("__codeMode:"));
+
+    const enabledTools = toolkitCategories.flatMap((cat) =>
+      Object.values((tools as Record<string, Record<string, KnockToolType>>)[cat] ?? {}),
+    );
 
     enabledTools.forEach((tool) => {
       // Agent-toolkit may ship zod v3 schemas; root uses zod v4 — normalize via unknown.

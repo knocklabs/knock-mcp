@@ -4,6 +4,11 @@
   "main": "src/index.ts",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "compatibility_date": "2025-02-01",
+  "worker_loaders": [
+    {
+      "binding": "LOADER"
+    }
+  ],
   "migrations": [
     {
       "new_sqlite_classes": ["KnockMCP"],
@@ -39,7 +44,8 @@
   "vars": {
     "KNOCK_AUTH_URL": "https://signin.knock.app",
     "KNOCK_DASHBOARD_URL": "https://dashboard.knock.app",
-    "INFRA_ENV": "production"
+    "INFRA_ENV": "production",
+    "KNOCK_CONTROL_URL": "https://control.knock.app"
   },
   "observability": {
     "enabled": true

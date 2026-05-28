@@ -6,6 +6,8 @@ export interface ToolGroup {
   description: string;
   categories: string[];
   enabledByDefault: boolean;
+  hidden?: boolean;
+  deprecated?: boolean;
 }
 
 type Status = "loading" | "ready" | "error";
