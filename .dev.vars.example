@@ -9,6 +9,9 @@ KNOCK_AUTH_URL=https://signin.knock.app
 # Knock dashboard URL (used for branding in consent dialog)
 KNOCK_DASHBOARD_URL=https://dashboard.knock.app
 
+# Knock Management API control plane (OpenAPI + execute_mapi requests)
+KNOCK_CONTROL_URL=https://control.knock.app
+
 # Secret key for signing session cookies (generate with: openssl rand -hex 32)
 COOKIE_ENCRYPTION_KEY=your_random_32_byte_hex_secret_here
 

@@ -4,14 +4,36 @@ export interface ToolGroup {
   description: string;
   categories: string[];
   enabledByDefault: boolean;
+  /** Omit from the main consent list (e.g. code mode is driven by Read/Manage toggles). */
+  hidden?: boolean;
+  /** Show under a collapsed "Deprecated" section (legacy toolkit groups). */
+  deprecated?: boolean;
 }
 
+/** Sentinel category: registers \`search_mapi\` / \`execute_mapi\` (Code Mode) — not a @knocklabs/agent-toolkit category. */
+export const CODE_MODE_MAPI_CATEGORY = "__codeMode:mapi" as const;
+
+/** Consent UI group key for Management API code mode (must match client). */
+export const CODE_MODE_MAPI_GROUP_KEY = "code-mode-mapi" as const;
+
+/** Reserved for a future public-API Code Mode group (\`search_api\` / \`execute_api\`). */
+export const CODE_MODE_API_CATEGORY = "__codeMode:api" as const;
+
 export const toolGroups: ToolGroup[] = [
+  {
+    key: CODE_MODE_MAPI_GROUP_KEY,
+    name: "Management API (code mode)",
+    description:
+      "search_mapi + execute_mapi — full Knock Management API access in ~1k tokens (OpenAPI + sandboxed code)",
+    categories: [CODE_MODE_MAPI_CATEGORY],
+    enabledByDefault: true,
+    hidden: true,
+  },
   {
     key: "manage-resources",
     name: "Manage resources",
     description:
-      "Create and manage notification workflows, channels, templates, and other configuration",
+      "Legacy MCP tools for workflows, channels, templates, and configuration (superseded by code mode)",
     categories: [
       "channels",
       "emailLayouts",
@@ -21,14 +43,16 @@ export const toolGroups: ToolGroup[] = [
       "partials",
       "workflows",
     ],
-    enabledByDefault: true,
+    enabledByDefault: false,
+    deprecated: true,
   },
   {
     key: "commits",
     name: "Commits",
-    description: "Commit and promote changes across environments",
+    description: "Legacy MCP tools to commit and promote changes (superseded by code mode)",
     categories: ["commits"],
     enabledByDefault: false,
+    deprecated: true,
   },
   {
     key: "debug",
@@ -63,4 +87,25 @@ export function resolveGroupsToCategories(selectedGroupKeys: string[]): string[]
     }
   }
   return [...categories];
+}
+
+const knownToolGroupKeys = new Set(toolGroups.map((g) => g.key));
+
+/** Group keys selected on the consent screen when `enabledByDefault` is true. */
+export function defaultSelectedGroupKeys(): string[] {
+  return toolGroups.filter((g) => g.enabledByDefault).map((g) => g.key);
+}
+
+/**
+ * Normalize OAuth props: missing, empty, or all-unknown selections fall back to defaults
+ * so MCP sessions never initialize with zero tools.
+ */
+export function resolveEffectiveSelectedGroups(
+  selectedGroups: string[] | undefined | null,
+): string[] {
+  if (!selectedGroups?.length) {
+    return defaultSelectedGroupKeys();
+  }
+  const valid = selectedGroups.filter((key) => knownToolGroupKeys.has(key));
+  return valid.length > 0 ? valid : defaultSelectedGroupKeys();
 }

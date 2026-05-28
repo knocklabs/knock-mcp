@@ -9,19 +9,19 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@telegraph/button": "^0.5.0",
+    "@telegraph/button": "^0.5.1",
     "@telegraph/layout": "^0.5.0",
-    "@telegraph/toggle": "^0.1.1",
+    "@telegraph/toggle": "^0.1.4",
     "@telegraph/tokens": "^0.1.4",
     "@telegraph/typography": "^0.2.1",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
   },
   "devDependencies": {
-    "@types/react": "^19.2.14",
+    "@types/react": "^19.2.15",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
-    "typescript": "^6.0.2",
-    "vite": "^8.0.2"
+    "@vitejs/plugin-react": "^6.0.2",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.14"
   }
 }

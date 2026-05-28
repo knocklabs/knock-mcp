@@ -6,7 +6,11 @@ import { Toggle } from "@telegraph/toggle";
 
 import { useToolGroups, type ToolGroup } from "../hooks/useToolGroups";
 import { useAuthorizeTools } from "../hooks/useAuthorizeTools";
+import { deriveMapiAccessMode, isMapiCodeModeEnabled } from "../utils/mapiAccess";
 import { KnockCard } from "./KnockCard";
+
+/** Must match `CODE_MODE_MAPI_GROUP_KEY` in src/tool-groups.ts */
+const CODE_MODE_MAPI_GROUP_KEY = "code-mode-mapi";
 
 interface Props {
   session: string;
@@ -23,12 +27,24 @@ export function ToolSelector({ session }: Props) {
   const { authorize, status: authStatus, redirectTo, error: authError } = useAuthorizeTools();
 
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [readResources, setReadResources] = useState(true);
+  const [manageResources, setManageResources] = useState(true);
+  const [deprecatedOpen, setDeprecatedOpen] = useState(false);
   const [initializedDefaults, setInitializedDefaults] = useState(false);
+
+  const mainGroups = toolGroups.filter((g) => !g.deprecated && !g.hidden);
+  const deprecatedGroups = toolGroups.filter((g) => g.deprecated);
 
   // Once tool groups load, initialise default selections once
   if (loadStatus === "ready" && !initializedDefaults) {
     setInitializedDefaults(true);
-    setSelected(new Set(toolGroups.filter((g) => g.enabledByDefault).map((g) => g.key)));
+    setSelected(
+      new Set(
+        toolGroups
+          .filter((g) => g.enabledByDefault && !g.hidden && !g.deprecated)
+          .map((g) => g.key),
+      ),
+    );
   }
 
   function toggle(key: string) {
@@ -40,8 +56,22 @@ export function ToolSelector({ session }: Props) {
   }
 
   function handleAuthorize() {
-    authorize(session, csrfToken, [...selected]);
+    const groups = [...selected].filter((key) => key !== CODE_MODE_MAPI_GROUP_KEY);
+    if (isMapiCodeModeEnabled(readResources, manageResources)) {
+      groups.push(CODE_MODE_MAPI_GROUP_KEY);
+    }
+    authorize(
+      session,
+      csrfToken,
+      groups,
+      isMapiCodeModeEnabled(readResources, manageResources)
+        ? deriveMapiAccessMode(readResources, manageResources)
+        : undefined,
+    );
   }
+
+  const hasAnyCapability =
+    selected.size > 0 || isMapiCodeModeEnabled(readResources, manageResources);
 
   const isSubmitting = authStatus === "submitting";
   const error = loadError ?? authError;
@@ -63,14 +93,12 @@ export function ToolSelector({ session }: Props) {
 
   return (
     <KnockCard>
-      {/* User email */}
       {email && (
         <Text as="p" size="2" color="gray">
           Authorizing as <strong>{email}</strong>
         </Text>
       )}
 
-      {/* Heading */}
       <Stack direction="column" gap="1">
         <Heading as="h1" size="3">
           Select capabilities to grant
@@ -81,10 +109,22 @@ export function ToolSelector({ session }: Props) {
         </Text>
       </Stack>
 
-      {/* Tool group cards */}
       {loadStatus === "ready" && (
         <Stack direction="column" gap="2">
-          {toolGroups.map((group) => (
+          <CapabilityToggle
+            name="Read resources"
+            description="Inspect Knock configuration via the Management API (GET requests)"
+            selected={readResources}
+            onToggle={() => setReadResources((prev) => !prev)}
+          />
+          <CapabilityToggle
+            name="Manage resources"
+            description="Create and update Knock configuration via the Management API (write requests)"
+            selected={manageResources}
+            onToggle={() => setManageResources((prev) => !prev)}
+          />
+
+          {mainGroups.map((group) => (
             <ToolGroupCard
               key={group.key}
               group={group}
@@ -92,17 +132,46 @@ export function ToolSelector({ session }: Props) {
               onToggle={() => toggle(group.key)}
             />
           ))}
+
+          {deprecatedGroups.length > 0 && (
+            <Stack direction="column" gap="2">
+              <button
+                type="button"
+                onClick={() => setDeprecatedOpen((open) => !open)}
+                aria-expanded={deprecatedOpen}
+                style={{
+                  alignSelf: "flex-start",
+                  padding: 0,
+                  border: "none",
+                  background: "none",
+                  cursor: "pointer",
+                }}
+              >
+                <Text as="span" size="1" color="gray">
+                  Deprecated {deprecatedOpen ? "▾" : "▸"}
+                </Text>
+              </button>
+
+              {deprecatedOpen &&
+                deprecatedGroups.map((group) => (
+                  <ToolGroupCard
+                    key={group.key}
+                    group={group}
+                    selected={selected.has(group.key)}
+                    onToggle={() => toggle(group.key)}
+                  />
+                ))}
+            </Stack>
+          )}
         </Stack>
       )}
 
-      {/* Error */}
       {error && (
         <Text as="p" size="2" color="red">
           {error}
         </Text>
       )}
 
-      {/* Actions */}
       <Stack direction="row" justify="flex-end" gap="2">
         <Button
           variant="ghost"
@@ -119,7 +188,7 @@ export function ToolSelector({ session }: Props) {
           size="2"
           onClick={handleAuthorize}
           state={isSubmitting ? "loading" : "default"}
-          disabled={isSubmitting}
+          disabled={isSubmitting || !hasAnyCapability}
         >
           Authorize
         </Button>
@@ -146,6 +215,52 @@ function AuthorizationComplete({ redirectTo }: { redirectTo: string }) {
         </Stack>
       </Stack>
     </KnockCard>
+  );
+}
+
+function CapabilityToggle({
+  name,
+  description,
+  selected,
+  onToggle,
+}: {
+  name: string;
+  description: string;
+  selected: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <Stack
+      as="button"
+      direction="row"
+      align="center"
+      gap="3"
+      w="full"
+      p="3"
+      rounded="3"
+      onClick={onToggle}
+      aria-pressed={selected}
+      border="px"
+      borderColor={selected ? "accent-7" : "gray-4"}
+      bg={selected ? "accent-2" : "surface-1"}
+      style={{
+        cursor: "pointer",
+        textAlign: "left",
+        transition: "border-color 0.15s, background 0.15s",
+      }}
+    >
+      <Toggle.Root value={selected} color="accent" style={{ flex: 1, pointerEvents: "none" }}>
+        <Stack direction="column" gap="0_5">
+          <Text as="span" size="2" weight="medium" color="default">
+            {name}
+          </Text>
+          <Text as="span" size="1" color="gray">
+            {description}
+          </Text>
+        </Stack>
+        <Toggle.Switch />
+      </Toggle.Root>
+    </Stack>
   );
 }
 
