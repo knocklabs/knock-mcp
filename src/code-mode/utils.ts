@@ -1,3 +1,7 @@
+import { Result } from "better-result";
+
+import { HttpMethodError, RequestValidationError } from "./errors";
+
 const CHARS_PER_TOKEN = 4;
 const MAX_TOKENS = 6_000;
 const MAX_CHARS = MAX_TOKENS * CHARS_PER_TOKEN;
@@ -12,25 +16,36 @@ export function truncateCodeModeResponse(content: unknown): string {
 }
 
 /** Reject absolute URLs and protocol-relative paths before building a request URL. */
-export function buildVariantApiUrl(baseUrl: string, path: string): URL {
+export function resolveVariantApiUrl(
+  baseUrl: string,
+  path: string,
+): Result<URL, RequestValidationError> {
   if (typeof path !== "string" || !path.trim()) {
-    throw new Error("request() expects a non-empty path");
+    return Result.err(
+      new RequestValidationError({ message: "request() expects a non-empty path" }),
+    );
   }
   const trimmed = path.trim();
   if (trimmed.includes("://") || trimmed.startsWith("//")) {
-    throw new Error("path must be a relative API path (e.g. /v1/workflows), not a full URL");
+    return Result.err(
+      new RequestValidationError({
+        message: "path must be a relative API path (e.g. /v1/workflows), not a full URL",
+      }),
+    );
   }
   if (trimmed.includes("..")) {
-    throw new Error("path must not contain ..");
+    return Result.err(new RequestValidationError({ message: "path must not contain .." }));
   }
   const pathname = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
   const base = baseUrl.replace(/\/$/, "");
   const url = new URL(`${base}${pathname}`);
   const expectedOrigin = new URL(base.endsWith("/") ? base : `${base}/`).origin;
   if (url.origin !== expectedOrigin) {
-    throw new Error("path must stay on the configured API host");
+    return Result.err(
+      new RequestValidationError({ message: "path must stay on the configured API host" }),
+    );
   }
-  return url;
+  return Result.ok(url);
 }
 
 export const ALLOWED_HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
@@ -39,13 +54,19 @@ export type CodeModeAccessMode = "read" | "read_write";
 
 export const READ_ONLY_HTTP_METHODS = new Set(["GET"]);
 
-export function assertHttpMethodAllowed(accessMode: CodeModeAccessMode, method: string): void {
-  if (accessMode === "read_write") return;
+export function validateHttpMethod(
+  accessMode: CodeModeAccessMode,
+  method: string,
+): Result<void, HttpMethodError> {
+  if (accessMode === "read_write") return Result.ok(undefined);
   if (!READ_ONLY_HTTP_METHODS.has(method)) {
-    throw new Error(
-      `This MCP session is read-only. "${method}" is not allowed — use GET only, or reconnect and allow read & write access.`,
+    return Result.err(
+      new HttpMethodError({
+        message: `This MCP session is read-only. "${method}" is not allowed — use GET only, or reconnect and allow read & write access.`,
+      }),
     );
   }
+  return Result.ok(undefined);
 }
 
 /** Headers the sandbox must not supply — host auth always sets these. */

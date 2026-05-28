@@ -4,108 +4,13 @@ import { z } from "zod";
 
 import type { Props } from "../types";
 import { filterOpenAPISpecToReadOnly, type OpenAPIVariant, getResolvedOpenAPISpec } from "../openapi-cache";
-import {
-  ALLOWED_HTTP_METHODS,
-  BLOCKED_CLIENT_HEADERS,
-  assertHttpMethodAllowed,
-  buildVariantApiUrl,
-  type CodeModeAccessMode,
-  formatCodeModeToolResult,
-} from "./utils";
+import { runCodeModeExecution } from "./execution";
+import { runCodeModeTool } from "./mcp-response";
+import { executeHostRequest } from "./request";
+import { type CodeModeAccessMode } from "./utils";
 
-export { buildVariantApiUrl, truncateCodeModeResponse } from "./utils";
-
-function formatError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-/** Host-only request handler; passed to the execute sandbox as `${namespace}.request()`. */
-function createRequestHandler(
-  baseUrl: string,
-  resolveAuth: CodeModeVariantConfig["resolveAuth"],
-  env: Env,
-  props: Props,
-  accessMode: CodeModeAccessMode,
-) {
-  return async (args: unknown) => {
-    const opts = args as CodeModeRequestOptions;
-    if (!opts || typeof opts !== "object" || !opts.path || !opts.method) {
-      throw new Error("request() expects { method, path, ... }");
-    }
-    if (!ALLOWED_HTTP_METHODS.has(opts.method)) {
-      throw new Error(`unsupported HTTP method: ${opts.method}`);
-    }
-    assertHttpMethodAllowed(accessMode, opts.method);
-    const { headers: authHeaders } = await resolveAuth(env, props);
-    const url = buildVariantApiUrl(baseUrl, opts.path);
-
-    if (opts.query) {
-      for (const [key, value] of Object.entries(opts.query)) {
-        if (value === undefined) continue;
-        url.searchParams.set(key, String(value));
-      }
-    }
-
-    const headers = new Headers();
-    if (opts.headers) {
-      for (const [k, vh] of Object.entries(opts.headers)) {
-        if (vh === undefined) continue;
-        if (BLOCKED_CLIENT_HEADERS.has(k.toLowerCase())) continue;
-        headers.set(k, vh);
-      }
-    }
-    // Auth from the host always wins — sandbox code must not override OAuth tokens.
-    for (const [k, vh] of Object.entries(authHeaders)) {
-      if (vh !== undefined) headers.set(k, vh);
-    }
-
-    let body: string | ArrayBuffer | undefined;
-    if (opts.method !== "GET" && opts.body !== undefined) {
-      if (opts.rawBody && (typeof opts.body === "string" || opts.body instanceof ArrayBuffer)) {
-        body = opts.body as string | ArrayBuffer;
-      } else {
-        if (!headers.has("Content-Type") && !opts.contentType) {
-          headers.set("Content-Type", "application/json");
-        } else if (opts.contentType) {
-          headers.set("Content-Type", opts.contentType);
-        }
-        body = typeof opts.body === "string" ? opts.body : JSON.stringify(opts.body);
-      }
-    } else if (opts.contentType) {
-      headers.set("Content-Type", opts.contentType);
-    }
-
-    const res = await fetch(url.toString(), { method: opts.method, headers, body });
-    const contentType = res.headers.get("Content-Type") ?? "";
-    let result: unknown;
-    if (contentType.includes("application/json")) {
-      const text = await res.text();
-      try {
-        result = text ? JSON.parse(text) : null;
-      } catch {
-        result = text;
-      }
-    } else {
-      result = await res.text();
-    }
-    return {
-      status: res.status,
-      ok: res.ok,
-      result,
-    };
-  };
-}
-
-/** Matches the request shape documented in @cloudflare/codemode's OpenAPI code-mode examples. */
-export interface CodeModeRequestOptions {
-  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-  path: string;
-  query?: Record<string, string | number | boolean | undefined>;
-  body?: unknown;
-  contentType?: string;
-  rawBody?: boolean;
-  headers?: Record<string, string>;
-}
+export type { CodeModeRequestOptions } from "./request";
+export { resolveVariantApiUrl, truncateCodeModeResponse } from "./utils";
 
 export type CodeModeVariant = OpenAPIVariant;
 
@@ -118,6 +23,18 @@ export interface CodeModeVariantConfig {
   /** Host-enforced HTTP access for execute_* sandbox requests. Defaults to read_write. */
   accessMode?: CodeModeAccessMode;
   resolveAuth: (env: Env, props: Props) => Promise<{ headers: Record<string, string> }>;
+}
+
+interface RequestHandlerConfig {
+  baseUrl: string;
+  resolveAuth: CodeModeVariantConfig["resolveAuth"];
+  env: Env;
+  props: Props;
+  accessMode: CodeModeAccessMode;
+}
+
+function createRequestHandler(config: RequestHandlerConfig) {
+  return (args: unknown) => executeHostRequest(args, config);
 }
 
 const SPEC_TYPES = (namespace: string) =>
@@ -212,6 +129,14 @@ export function registerCodeModeVariant(
     timeout: 30_000,
   });
 
+  const requestHandlerConfig: RequestHandlerConfig = {
+    baseUrl,
+    resolveAuth,
+    env,
+    props,
+    accessMode,
+  };
+
   // Split providers like @cloudflare/codemode openApiMcpServer: search only gets spec(),
   // execute only gets request() — so search cannot perform side-effecting API calls.
   const searchProvider = resolveProvider({
@@ -230,7 +155,7 @@ export function registerCodeModeVariant(
     name: namespace,
     tools: {
       request: {
-        execute: createRequestHandler(baseUrl, resolveAuth, env, props, accessMode),
+        execute: createRequestHandler(requestHandlerConfig),
       },
     },
   });
@@ -258,25 +183,8 @@ async () => {
         code: z.string().describe("JavaScript async arrow function to search the spec"),
       },
     },
-    async ({ code }) => {
-      try {
-        const result = await executor.execute(code, [searchProvider]);
-        if (result.error) {
-          return {
-            content: [{ type: "text" as const, text: `Error: ${result.error}` }],
-            isError: true,
-          };
-        }
-        return {
-          content: [{ type: "text" as const, text: formatCodeModeToolResult(result) }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text" as const, text: `Error: ${formatError(error)}` }],
-          isError: true,
-        };
-      }
-    },
+    async ({ code }) =>
+      runCodeModeTool(() => runCodeModeExecution(() => executor.execute(code, [searchProvider]))),
   );
 
   server.registerTool(
@@ -306,24 +214,7 @@ async () => {
 `,
       inputSchema: { code: z.string().describe("JavaScript async arrow function to execute") },
     },
-    async ({ code }) => {
-      try {
-        const result = await executor.execute(code, [executeProvider]);
-        if (result.error) {
-          return {
-            content: [{ type: "text" as const, text: `Error: ${result.error}` }],
-            isError: true,
-          };
-        }
-        return {
-          content: [{ type: "text" as const, text: formatCodeModeToolResult(result) }],
-        };
-      } catch (error) {
-        return {
-          content: [{ type: "text" as const, text: `Error: ${formatError(error)}` }],
-          isError: true,
-        };
-      }
-    },
+    async ({ code }) =>
+      runCodeModeTool(() => runCodeModeExecution(() => executor.execute(code, [executeProvider]))),
   );
 }

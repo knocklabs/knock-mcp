@@ -24,6 +24,7 @@
     "@modelcontextprotocol/sdk": "1.28.0",
     "@sentry/cloudflare": "^10.49.0",
     "agents": "^0.8.7",
+    "better-result": "^2.9.2",
     "hono": "^4.12.23",
     "jose": "^6.2.3",
     "zod": "^4.4.3"

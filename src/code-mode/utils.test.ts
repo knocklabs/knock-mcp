@@ -1,28 +1,48 @@
+import { Result } from "better-result";
 import { describe, expect, it } from "vitest";
 
-import { buildVariantApiUrl, truncateCodeModeResponse, assertHttpMethodAllowed } from "./utils";
+import { resolveVariantApiUrl, truncateCodeModeResponse, validateHttpMethod } from "./utils";
 
-describe("buildVariantApiUrl", () => {
+describe("resolveVariantApiUrl", () => {
   const base = "https://control.knock.app";
 
   it("builds paths on the configured host", () => {
-    const url = buildVariantApiUrl(base, "/v1/workflows");
-    expect(url.origin).toBe("https://control.knock.app");
-    expect(url.pathname).toBe("/v1/workflows");
+    const result = resolveVariantApiUrl(base, "/v1/workflows");
+    expect(Result.isOk(result)).toBe(true);
+    if (Result.isOk(result)) {
+      expect(result.value.origin).toBe("https://control.knock.app");
+      expect(result.value.pathname).toBe("/v1/workflows");
+    }
   });
 
   it("accepts paths without a leading slash", () => {
-    const url = buildVariantApiUrl(base, "v1/workflows");
-    expect(url.pathname).toBe("/v1/workflows");
+    const result = resolveVariantApiUrl(base, "v1/workflows");
+    expect(Result.isOk(result)).toBe(true);
+    if (Result.isOk(result)) {
+      expect(result.value.pathname).toBe("/v1/workflows");
+    }
   });
 
   it("rejects absolute URLs and protocol-relative paths", () => {
-    expect(() => buildVariantApiUrl(base, "https://evil.com/x")).toThrow(/relative API path/);
-    expect(() => buildVariantApiUrl(base, "//evil.com/x")).toThrow(/relative API path/);
+    const absolute = resolveVariantApiUrl(base, "https://evil.com/x");
+    expect(Result.isError(absolute)).toBe(true);
+    if (Result.isError(absolute)) {
+      expect(absolute.error.message).toMatch(/relative API path/);
+    }
+
+    const protocolRelative = resolveVariantApiUrl(base, "//evil.com/x");
+    expect(Result.isError(protocolRelative)).toBe(true);
+    if (Result.isError(protocolRelative)) {
+      expect(protocolRelative.error.message).toMatch(/relative API path/);
+    }
   });
 
   it("rejects path traversal", () => {
-    expect(() => buildVariantApiUrl(base, "/v1/../admin")).toThrow(/\.\./);
+    const result = resolveVariantApiUrl(base, "/v1/../admin");
+    expect(Result.isError(result)).toBe(true);
+    if (Result.isError(result)) {
+      expect(result.error.message).toMatch(/\.\./);
+    }
   });
 });
 
@@ -32,13 +52,20 @@ describe("truncateCodeModeResponse", () => {
   });
 });
 
-describe("assertHttpMethodAllowed", () => {
+describe("validateHttpMethod", () => {
   it("allows writes in read_write mode", () => {
-    expect(() => assertHttpMethodAllowed("read_write", "POST")).not.toThrow();
+    const result = validateHttpMethod("read_write", "POST");
+    expect(Result.isOk(result)).toBe(true);
   });
 
   it("blocks writes in read mode", () => {
-    expect(() => assertHttpMethodAllowed("read", "POST")).toThrow(/read-only/);
-    expect(() => assertHttpMethodAllowed("read", "GET")).not.toThrow();
+    const post = validateHttpMethod("read", "POST");
+    expect(Result.isError(post)).toBe(true);
+    if (Result.isError(post)) {
+      expect(post.error.message).toMatch(/read-only/);
+    }
+
+    const get = validateHttpMethod("read", "GET");
+    expect(Result.isOk(get)).toBe(true);
   });
 });
