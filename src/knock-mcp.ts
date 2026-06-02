@@ -8,9 +8,15 @@ import * as Sentry from "@sentry/cloudflare";
 import { tools, type KnockToolType } from "@knocklabs/agent-toolkit/core";
 
 import { registerMapiCodeMode } from "./code-mode/mapi";
+import { registerUseKnockAgent } from "./agent/use-knock-agent";
 import { getKnockControlBaseUrl } from "./knock-control-url";
 import type { Props } from "./types";
-import { CODE_MODE_MAPI_CATEGORY, resolveEffectiveSelectedGroups, resolveGroupsToCategories } from "./tool-groups";
+import {
+  AGENT_CATEGORY,
+  CODE_MODE_MAPI_CATEGORY,
+  resolveEffectiveSelectedGroups,
+  resolveGroupsToCategories,
+} from "./tool-groups";
 import { getOrRefreshKnockToken } from "./token-store";
 
 function createKnockClient(config: {
@@ -74,7 +80,11 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
       registerMapiCodeMode(this.server, this.env, props);
     }
 
-    const toolkitCategories = categories.filter((c) => !c.startsWith("__codeMode:"));
+    if (categories.includes(AGENT_CATEGORY)) {
+      registerUseKnockAgent(this.server, this.env, props);
+    }
+
+    const toolkitCategories = categories.filter((c) => !c.startsWith("__"));
 
     const enabledTools = toolkitCategories.flatMap((cat) =>
       Object.values((tools as Record<string, Record<string, KnockToolType>>)[cat] ?? {}),
