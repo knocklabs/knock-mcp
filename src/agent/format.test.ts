@@ -56,4 +56,32 @@ describe("formatAgentResult", () => {
     expect(error.content[0].text).toContain("Session ID: session-error");
     expect(error.content[0].text).toContain("Agent API request failed");
   });
+
+  it("does not mark cancelled results as MCP errors", () => {
+    const cancelled = formatAgentResult({
+      status: "cancelled",
+      text: "Partial output",
+      toolCalls: [],
+      modifiedResources: [],
+      sessionId: "session-cancelled",
+      runId: "run-cancelled",
+      error: "Agent run was cancelled before completion",
+    });
+
+    expect(cancelled.isError).toBeUndefined();
+    expect(cancelled.content[0].text).toContain("was cancelled");
+  });
+
+  it("truncates very large responses", () => {
+    const formatted = formatAgentResult({
+      status: "complete",
+      text: "x".repeat(30_000),
+      toolCalls: [],
+      modifiedResources: [],
+      sessionId: "session-large",
+      runId: "run-large",
+    });
+
+    expect(formatted.content[0].text).toContain("--- TRUNCATED ---");
+  });
 });

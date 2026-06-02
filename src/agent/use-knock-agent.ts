@@ -5,8 +5,10 @@ import * as Sentry from "@sentry/cloudflare";
 import { z } from "zod";
 
 import type { Props } from "../types";
-import { formatAgentResult } from "./format";
+import { createAgentRunAbortController } from "./abort";
+import { runKnockAgentTool } from "./mcp-response";
 import { DEFAULT_AGENT_RUN_TIMEOUT_MS, runAgentSession } from "./stream";
+import { MAX_AGENT_PROMPT_CHARS } from "./validation";
 
 const USE_KNOCK_AGENT_DESCRIPTION = `Use Knock's hosted agent to create or update notification resources inside the connected Knock account.
 
@@ -24,9 +26,11 @@ export function registerUseKnockAgent(server: McpServer, env: Env, props: Props)
       inputSchema: {
         prompt: z
           .string()
+          .max(MAX_AGENT_PROMPT_CHARS)
           .describe("The user's full request, passed verbatim to the Knock agent"),
         session_id: z
           .string()
+          .uuid()
           .optional()
           .describe("Existing agent session ID for follow-up runs"),
         environment: z
@@ -41,38 +45,44 @@ export function registerUseKnockAgent(server: McpServer, env: Env, props: Props)
     ) => {
       Sentry.setTag("knock.tool", "use_knock_agent");
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), DEFAULT_AGENT_RUN_TIMEOUT_MS);
-      extra.signal.addEventListener("abort", () => controller.abort(), { once: true });
+      const { controller, getAbortReason, clear: clearAbort } = createAgentRunAbortController(
+        DEFAULT_AGENT_RUN_TIMEOUT_MS,
+        extra.signal,
+      );
 
       const progressToken = extra._meta?.progressToken;
       const onProgress = progressToken
         ? async (state: { eventCount: number; toolCallCount: number }) => {
-            await extra.sendNotification({
-              method: "notifications/progress",
-              params: {
-                progressToken,
-                progress: state.eventCount,
-                message: `Knock agent working… ${state.toolCallCount} tool call(s) so far`,
-              },
-            });
+            try {
+              await extra.sendNotification({
+                method: "notifications/progress",
+                params: {
+                  progressToken,
+                  progress: state.eventCount,
+                  message: `Knock agent working… ${state.toolCallCount} tool call(s) so far`,
+                },
+              });
+            } catch {
+              // Progress notifications are best-effort.
+            }
           }
         : undefined;
 
       try {
-        const result = await runAgentSession({
-          env,
-          props,
-          prompt,
-          sessionId,
-          environment,
-          onProgress,
-          signal: controller.signal,
-        });
-
-        return formatAgentResult(result);
+        return await runKnockAgentTool(() =>
+          runAgentSession({
+            env,
+            props,
+            prompt,
+            sessionId,
+            environment,
+            onProgress,
+            signal: controller.signal,
+            getAbortReason,
+          }),
+        );
       } finally {
-        clearTimeout(timeout);
+        clearAbort();
       }
     },
   );

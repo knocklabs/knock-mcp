@@ -1,15 +1,34 @@
+import { Result } from "better-result";
+
 import type { Props } from "../types";
 import { getKnockControlBaseUrl } from "../knock-control-url";
 import { getOrRefreshKnockToken } from "../token-store";
+import type { AgentAbortReason } from "./abort";
+import {
+  AgentApiError,
+  AgentStreamError,
+  formatAgentError,
+  toAgentNetworkError,
+  withAgentErrorContext,
+  type AgentError,
+} from "./errors";
 import {
   createAgentRunAccumulator,
   finalizeAgentRunResult,
+  markAgentRunCancelled,
   markAgentRunTimedOut,
   parseAgentEventLine,
   reduceAgentEvent,
   type AgentRunAccumulator,
   type AgentRunResult,
 } from "./events";
+import {
+  validateAgentEnvironment,
+  validateAgentPrompt,
+  validateAgentSessionId,
+} from "./validation";
+
+export type { AgentAbortReason };
 
 export const DEFAULT_AGENT_RUN_TIMEOUT_MS = 240_000;
 export const DEFAULT_PROGRESS_THROTTLE_MS = 5_000;
@@ -28,16 +47,8 @@ export interface RunAgentSessionOptions {
   onProgress?: (state: AgentRunAccumulator) => void | Promise<void>;
   signal?: AbortSignal;
   progressThrottleMs?: number;
-}
-
-export class AgentSessionError extends Error {
-  constructor(
-    message: string,
-    readonly status?: number,
-  ) {
-    super(message);
-    this.name = "AgentSessionError";
-  }
+  /** Why the run was aborted — used to distinguish client cancel from server timeout. */
+  getAbortReason?: () => AgentAbortReason | undefined;
 }
 
 async function resolveAgentAuthHeaders(env: Env, props: Props): Promise<Record<string, string>> {
@@ -109,10 +120,19 @@ async function consumeNdjsonStream(
   onParsedLine: (rawLine: string) => void | Promise<void>,
   signal?: AbortSignal,
   shouldStop?: () => boolean,
+  onStop?: () => void,
 ): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+
+  const stopReading = async (): Promise<void> => {
+    try {
+      await reader.cancel();
+    } catch {
+      // Best-effort cleanup after a terminal event.
+    }
+  };
 
   try {
     while (true) {
@@ -120,6 +140,8 @@ async function consumeNdjsonStream(
         throw new DOMException("Agent run aborted", "AbortError");
       }
       if (shouldStop?.()) {
+        onStop?.();
+        await stopReading();
         return;
       }
 
@@ -133,6 +155,8 @@ async function consumeNdjsonStream(
       for (const line of lines) {
         await onParsedLine(line);
         if (shouldStop?.()) {
+          onStop?.();
+          await stopReading();
           return;
         }
       }
@@ -140,10 +164,42 @@ async function consumeNdjsonStream(
 
     if (buffer.trim()) {
       await onParsedLine(buffer);
+      if (shouldStop?.()) {
+        onStop?.();
+        await stopReading();
+      }
     }
   } finally {
     reader.releaseLock();
   }
+}
+
+const MAX_ERROR_MESSAGE_CHARS = 500;
+
+function sanitizeAgentApiError(status: number, body: string): string {
+  const trimmed = body.trim();
+  if (!trimmed) {
+    return `Agent API request failed with status ${status}`;
+  }
+
+  if (trimmed.startsWith("<") || trimmed.startsWith("<!")) {
+    return `Agent API request failed with status ${status}`;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    const message =
+      parsed.message ??
+      parsed.error ??
+      (typeof parsed.errors === "string" ? parsed.errors : undefined);
+    if (typeof message === "string" && message.trim()) {
+      return message.trim().slice(0, MAX_ERROR_MESSAGE_CHARS);
+    }
+  } catch {
+    // Fall through to raw text truncation.
+  }
+
+  return trimmed.slice(0, MAX_ERROR_MESSAGE_CHARS);
 }
 
 function createProgressNotifier(
@@ -159,11 +215,17 @@ function createProgressNotifier(
     const now = Date.now();
     if (now - lastProgressAt < throttleMs) return;
     lastProgressAt = now;
-    await onProgress(state);
+    try {
+      await onProgress(state);
+    } catch {
+      // Progress notifications are best-effort and must not fail the run.
+    }
   };
 }
 
-export async function runAgentSession(options: RunAgentSessionOptions): Promise<AgentRunResult> {
+export async function runAgentSession(
+  options: RunAgentSessionOptions,
+): Promise<Result<AgentRunResult, AgentError>> {
   const {
     env,
     props,
@@ -173,22 +235,54 @@ export async function runAgentSession(options: RunAgentSessionOptions): Promise<
     onProgress,
     signal,
     progressThrottleMs = DEFAULT_PROGRESS_THROTTLE_MS,
+    getAbortReason,
   } = options;
 
   const baseUrl = getKnockControlBaseUrl(env);
-  const sessionId = existingSessionId ?? crypto.randomUUID();
   const runId = crypto.randomUUID();
+  let sessionId = crypto.randomUUID();
+
+  if (existingSessionId) {
+    const provisionalContext = { sessionId: existingSessionId.trim(), runId };
+    const sessionResult = validateAgentSessionId(existingSessionId, provisionalContext);
+    if (Result.isError(sessionResult)) {
+      return Result.err(sessionResult.error);
+    }
+    sessionId = sessionResult.value;
+  }
+
+  const errorContext = { sessionId, runId };
+
+  const promptResult = validateAgentPrompt(prompt, errorContext);
+  if (Result.isError(promptResult)) {
+    return Result.err(promptResult.error);
+  }
+
+  const environmentResult = validateAgentEnvironment(environment, errorContext);
+  if (Result.isError(environmentResult)) {
+    return Result.err(environmentResult.error);
+  }
+  const resolvedEnvironment = environmentResult.value;
+
   const isFollowUp = Boolean(existingSessionId);
   const url = isFollowUp
     ? `${baseUrl}/agent/sessions/${sessionId}/runs`
     : `${baseUrl}/agent/sessions`;
   const body = isFollowUp
-    ? buildFollowUpRunBody(runId, prompt, environment)
-    : buildCreateSessionBody(sessionId, runId, prompt, environment);
+    ? buildFollowUpRunBody(runId, promptResult.value, resolvedEnvironment)
+    : buildCreateSessionBody(sessionId, runId, promptResult.value, resolvedEnvironment);
 
   let headers: Record<string, string> = {};
   let accumulator = createAgentRunAccumulator(sessionId, runId);
   const notifyProgress = createProgressNotifier(onProgress, progressThrottleMs);
+  const streamAbort = new AbortController();
+  const fetchSignal =
+    signal !== undefined ? AbortSignal.any([signal, streamAbort.signal]) : streamAbort.signal;
+  const releaseFetch = (): void => {
+    if (!streamAbort.signal.aborted) {
+      streamAbort.abort();
+    }
+  };
 
   const reduceLine = async (rawLine: string) => {
     const parsed = parseAgentEventLine(rawLine);
@@ -201,24 +295,50 @@ export async function runAgentSession(options: RunAgentSessionOptions): Promise<
   };
 
   try {
-    headers = await resolveAgentAuthHeaders(env, props);
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal,
+    const headersResult = await Result.tryPromise({
+      try: () => resolveAgentAuthHeaders(env, props),
+      catch: toAgentNetworkError,
     });
+    if (Result.isError(headersResult)) {
+      return Result.err(withAgentErrorContext(headersResult.error, errorContext));
+    }
+    headers = headersResult.value;
+
+    const responseResult = await Result.tryPromise({
+      try: () =>
+        fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: fetchSignal,
+        }),
+      catch: toAgentNetworkError,
+    });
+    if (Result.isError(responseResult)) {
+      return Result.err(withAgentErrorContext(responseResult.error, errorContext));
+    }
+    const response = responseResult.value;
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => "");
-      throw new AgentSessionError(
-        errorText || `Agent API request failed with status ${response.status}`,
-        response.status,
+      return Result.err(
+        withAgentErrorContext(
+          new AgentApiError({
+            message: sanitizeAgentApiError(response.status, errorText),
+            status: response.status,
+          }),
+          errorContext,
+        ),
       );
     }
 
     if (!response.body) {
-      throw new AgentSessionError("Agent API returned an empty response body");
+      return Result.err(
+        withAgentErrorContext(
+          new AgentStreamError({ message: "Agent API returned an empty response body" }),
+          errorContext,
+        ),
+      );
     }
 
     await consumeNdjsonStream(
@@ -228,20 +348,23 @@ export async function runAgentSession(options: RunAgentSessionOptions): Promise<
       },
       signal,
       () => accumulator.isTerminal,
+      releaseFetch,
     );
 
     if (accumulator.isTerminal) {
-      return finalizeAgentRunResult(accumulator);
+      return Result.ok(finalizeAgentRunResult(accumulator));
     }
 
-    return finalizeAgentRunResult({
-      ...accumulator,
-      status: "error",
-      error: accumulator.error ?? "Agent run ended without a terminal event",
-    });
+    return Result.ok(
+      finalizeAgentRunResult({
+        ...accumulator,
+        status: "error",
+        error: accumulator.error ?? "Agent run ended without a terminal event",
+      }),
+    );
   } catch (error) {
     if (accumulator.isTerminal) {
-      return finalizeAgentRunResult(accumulator);
+      return Result.ok(finalizeAgentRunResult(accumulator));
     }
 
     const aborted =
@@ -251,22 +374,19 @@ export async function runAgentSession(options: RunAgentSessionOptions): Promise<
 
     if (aborted) {
       await stopAgentSession(baseUrl, sessionId, headers);
-      return finalizeAgentRunResult(markAgentRunTimedOut(accumulator));
+      const reason = getAbortReason?.();
+      if (reason === "client") {
+        return Result.ok(finalizeAgentRunResult(markAgentRunCancelled(accumulator)));
+      }
+      return Result.ok(finalizeAgentRunResult(markAgentRunTimedOut(accumulator)));
     }
 
-    if (error instanceof AgentSessionError) {
-      return finalizeAgentRunResult({
+    return Result.ok(
+      finalizeAgentRunResult({
         ...accumulator,
         status: "error",
-        error: error.message,
-      });
-    }
-
-    const message = error instanceof Error ? error.message : "Unknown agent error";
-    return finalizeAgentRunResult({
-      ...accumulator,
-      status: "error",
-      error: message,
-    });
+        error: formatAgentError(error),
+      }),
+    );
   }
 }

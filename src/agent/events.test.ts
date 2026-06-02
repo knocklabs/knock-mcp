@@ -164,6 +164,58 @@ describe("reduceAgentEvent", () => {
     expect(state.toolCallCount).toBe(1);
   });
 
+  it("dedupes repeated toolCall events without callId using name and arguments", () => {
+    let state = createAgentRunAccumulator("session-tools-no-id", "run-tools-no-id");
+
+    state = reduceAgentEvent(state, {
+      type: "toolCall",
+      payload: {
+        name: "bash",
+        arguments: '{"command":"cat /knock/channels.json"}',
+      },
+    });
+    state = reduceAgentEvent(state, {
+      type: "toolCall",
+      payload: {
+        name: "bash",
+        arguments: '{"command":"cat /knock/channels.json"}',
+      },
+    });
+
+    expect(state.toolCalls).toHaveLength(1);
+    expect(state.toolCallCount).toBe(1);
+  });
+
+  it("records multiple toolCall events without callId when arguments are absent", () => {
+    let state = createAgentRunAccumulator("session-anonymous-tools", "run-anonymous-tools");
+
+    state = reduceAgentEvent(state, {
+      type: "toolCall",
+      payload: { name: "bash" },
+    });
+    state = reduceAgentEvent(state, {
+      type: "toolCall",
+      payload: { name: "bash" },
+    });
+
+    expect(state.toolCalls).toHaveLength(2);
+    expect(state.toolCallCount).toBe(2);
+  });
+
+  it("ignores modified resources missing type and key", () => {
+    let state = createAgentRunAccumulator("session-resources", "run-resources");
+    state = reduceAgentEvent(state, {
+      type: "signal",
+      payload: {
+        resources: [{ action: "created" }, { type: "workflow", key: "welcome", action: "created" }],
+      },
+    });
+
+    expect(state.modifiedResources).toEqual([
+      { type: "workflow", key: "welcome", name: undefined, action: "created" },
+    ]);
+  });
+
   it("ignores reasoning events for final output", () => {
     let state = createAgentRunAccumulator("session-reasoning", "run-reasoning");
 

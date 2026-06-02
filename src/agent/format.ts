@@ -1,4 +1,5 @@
 import type { AgentRunResult } from "./events";
+import { truncateCodeModeResponse } from "../code-mode/utils";
 
 export type AgentMcpToolResponse = {
   content: [{ type: "text"; text: string }];
@@ -51,6 +52,13 @@ export function formatAgentResult(result: AgentRunResult): AgentMcpToolResponse 
     );
   }
 
+  if (result.status === "cancelled") {
+    sections.push(
+      "",
+      "The agent run was cancelled before completion. Re-run use_knock_agent with the same session_id to continue if needed.",
+    );
+  }
+
   if (result.error) {
     sections.push("", `Error: ${result.error}`);
   }
@@ -58,7 +66,7 @@ export function formatAgentResult(result: AgentRunResult): AgentMcpToolResponse 
   const isError = result.status === "error" || result.status === "timeout";
 
   return {
-    content: [{ type: "text", text: sections.join("\n") }],
+    content: [{ type: "text", text: truncateCodeModeResponse(sections.join("\n")) }],
     ...(isError ? { isError: true } : {}),
   };
 }

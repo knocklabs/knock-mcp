@@ -1,6 +1,8 @@
+import { Result } from "better-result";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Props } from "../types";
+import { AgentApiError } from "./errors";
 import {
   buildCreateSessionBody,
   buildFollowUpRunBody,
@@ -95,9 +97,11 @@ describe("runAgentSession", () => {
       progressThrottleMs: 0,
     });
 
-    expect(result.status).toBe("complete");
-    expect(result.text).toBe("Done.");
-    expect(result.toolCalls).toEqual([
+    expect(Result.isOk(result)).toBe(true);
+    if (Result.isError(result)) return;
+    expect(result.value.status).toBe("complete");
+    expect(result.value.text).toBe("Done.");
+    expect(result.value.toolCalls).toEqual([
       { name: "upsert_workflow", input: '{"workflow_key":"welcome"}' },
     ]);
     expect(onProgress).toHaveBeenCalled();
@@ -130,11 +134,13 @@ describe("runAgentSession", () => {
   it("posts follow-up runs to the session runs endpoint", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjsonResponse([JSON.stringify({ type: "runEnd" })])));
 
+    const existingSession = "550e8400-e29b-41d4-a716-446655440000";
+
     await runAgentSession({
       env: baseEnv,
       props: baseProps,
       prompt: "Add a delay step",
-      sessionId: "existing-session",
+      sessionId: existingSession,
       environment: "staging",
     });
 
@@ -142,7 +148,7 @@ describe("runAgentSession", () => {
     const requestBody = JSON.parse(String(requestInit.body));
 
     expect(fetch).toHaveBeenCalledWith(
-      "https://control.knock.app/agent/sessions/existing-session/runs",
+      `https://control.knock.app/agent/sessions/${existingSession}/runs`,
       expect.objectContaining({ method: "POST" }),
     );
     expect(requestBody).toEqual({
@@ -180,7 +186,7 @@ describe("runAgentSession", () => {
     expect(onProgress).toHaveBeenCalled();
   });
 
-  it("returns an error result for non-2xx responses", async () => {
+  it("returns an AgentApiError for non-2xx responses", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(new Response("Unauthorized", { status: 401 })),
@@ -192,11 +198,15 @@ describe("runAgentSession", () => {
       prompt: "Create a workflow",
     });
 
-    expect(result.status).toBe("error");
-    expect(result.error).toContain("Unauthorized");
+    expect(Result.isError(result)).toBe(true);
+    if (Result.isOk(result)) return;
+    expect(result.error).toBeInstanceOf(AgentApiError);
+    expect(result.error.message).toContain("Unauthorized");
+    expect(result.error.sessionId).toEqual(expect.any(String));
+    expect(result.error.runId).toEqual(expect.any(String));
   });
 
-  it("stops the session and returns a timeout result when aborted", async () => {
+  it("stops the session and returns a timeout result when aborted due to timeout", async () => {
     const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
       if (url.endsWith("/stop")) {
         return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
@@ -226,17 +236,159 @@ describe("runAgentSession", () => {
       props: baseProps,
       prompt: "Create a workflow",
       signal: controller.signal,
+      getAbortReason: () => "timeout",
     });
 
     await Promise.resolve();
     controller.abort();
 
     const result = await resultPromise;
-    expect(result.status).toBe("timeout");
+    expect(Result.isOk(result)).toBe(true);
+    if (Result.isError(result)) return;
+    expect(result.value.status).toBe("timeout");
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringMatching(/\/agent\/session\/.+\/stop$/),
       expect.objectContaining({ method: "POST" }),
     );
+  });
+
+  it("returns a cancelled result when aborted by the client", async () => {
+    const fetchMock = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      if (url.endsWith("/stop")) {
+        return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      }
+
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () => {
+            controller.error(new DOMException("Aborted", "AbortError"));
+          });
+        },
+      });
+
+      return Promise.resolve(
+        new Response(body, {
+          status: 200,
+          headers: { "Content-Type": "application/x-ndjson" },
+        }),
+      );
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const controller = new AbortController();
+    const resultPromise = runAgentSession({
+      env: baseEnv,
+      props: baseProps,
+      prompt: "Create a workflow",
+      signal: controller.signal,
+      getAbortReason: () => "client",
+    });
+
+    await Promise.resolve();
+    controller.abort();
+
+    const result = await resultPromise;
+    expect(Result.isOk(result)).toBe(true);
+    if (Result.isError(result)) return;
+    expect(result.value.status).toBe("cancelled");
+  });
+
+  it("continues when onProgress throws", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        ndjsonResponse([
+          JSON.stringify({
+            type: "textContent",
+            value: { type: "complete", value: "Done." },
+          }),
+          JSON.stringify({ type: "runEnd" }),
+        ]),
+      ),
+    );
+
+    const result = await runAgentSession({
+      env: baseEnv,
+      props: baseProps,
+      prompt: "Create a workflow",
+      onProgress: async () => {
+        throw new Error("progress notification failed");
+      },
+      progressThrottleMs: 0,
+    });
+
+    expect(Result.isOk(result)).toBe(true);
+    if (Result.isError(result)) return;
+    expect(result.value.status).toBe("complete");
+    expect(result.value.text).toBe("Done.");
+  });
+
+  it("cancels the NDJSON reader after a terminal event", async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(
+          new TextEncoder().encode(`${JSON.stringify({ type: "runEnd" })}\n`),
+        );
+        controller.enqueue(new TextEncoder().encode(`${JSON.stringify({ type: "textContent", value: { type: "complete", value: "late" } })}\n`));
+      },
+      cancel,
+    });
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(body, {
+          status: 200,
+          headers: { "Content-Type": "application/x-ndjson" },
+        }),
+      ),
+    );
+
+    const result = await runAgentSession({
+      env: baseEnv,
+      props: baseProps,
+      prompt: "Create a workflow",
+    });
+
+    expect(Result.isOk(result)).toBe(true);
+    if (Result.isError(result)) return;
+    expect(result.value.status).toBe("complete");
+    expect(cancel).toHaveBeenCalled();
+  });
+
+  it("rejects invalid session_id values before calling the API", async () => {
+    vi.stubGlobal("fetch", vi.fn());
+
+    const result = await runAgentSession({
+      env: baseEnv,
+      props: baseProps,
+      prompt: "Create a workflow",
+      sessionId: "../evil",
+    });
+
+    expect(Result.isError(result)).toBe(true);
+    if (Result.isOk(result)) return;
+    expect(result.error.message).toContain("session_id must be a UUID");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("sanitizes HTML error bodies from non-2xx responses", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("<html>Unauthorized</html>", { status: 401 })),
+    );
+
+    const result = await runAgentSession({
+      env: baseEnv,
+      props: baseProps,
+      prompt: "Create a workflow",
+    });
+
+    expect(Result.isError(result)).toBe(true);
+    if (Result.isOk(result)) return;
+    expect(result.error.message).toBe("Agent API request failed with status 401");
   });
 });
 

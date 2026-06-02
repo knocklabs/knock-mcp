@@ -23,7 +23,7 @@ export interface AgentModifiedResource {
   action?: string;
 }
 
-export type AgentRunStatus = "running" | "complete" | "error" | "timeout";
+export type AgentRunStatus = "running" | "complete" | "error" | "timeout" | "cancelled";
 
 export interface AgentRunAccumulator {
   sessionId: string;
@@ -36,6 +36,8 @@ export interface AgentRunAccumulator {
   toolCalls: AgentToolCallSummary[];
   modifiedResources: AgentModifiedResource[];
   announcedToolCallIds: Set<string>;
+  /** Fallback dedupe key when toolCall events omit callId. */
+  announcedToolCallKeys: Set<string>;
   error?: string;
   eventCount: number;
   toolCallCount: number;
@@ -43,7 +45,7 @@ export interface AgentRunAccumulator {
 }
 
 export interface AgentRunResult {
-  status: "complete" | "error" | "timeout";
+  status: "complete" | "error" | "timeout" | "cancelled";
   text: string;
   toolCalls: AgentToolCallSummary[];
   modifiedResources: AgentModifiedResource[];
@@ -178,6 +180,16 @@ function readToolName(payload: Record<string, unknown>): string | undefined {
   );
 }
 
+function stableSerialize(value: unknown): string {
+  if (value === undefined) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function readToolInput(payload: Record<string, unknown>): unknown {
   if ("input" in payload) return payload.input;
   if ("arguments" in payload) return payload.arguments;
@@ -196,6 +208,36 @@ function readRunErrorMessage(payload: Record<string, unknown>): string | undefin
   );
 }
 
+function toolCallDedupeKey(
+  name: string,
+  callId: string | undefined,
+  input: unknown,
+): string | undefined {
+  if (callId) return undefined;
+  const serialized = stableSerialize(input);
+  if (!serialized) return undefined;
+  return `${name}:${serialized}`;
+}
+
+function normalizeModifiedResource(record: Record<string, unknown>): AgentModifiedResource | null {
+  const strict = readSingleModifiedResource(record);
+  if (strict) return strict;
+
+  const type = readString(record.resource_type) ?? readString(record.type);
+  const key =
+    readString(record.resource_key) ?? readString(record.key) ?? readString(record.id);
+  const name = readString(record.name);
+  if (!type || (!key && !name)) {
+    return null;
+  }
+
+  return {
+    type,
+    key,
+    name,
+    action: readString(record.resource_action) ?? readString(record.action),
+  };
+}
 function readSingleModifiedResource(
   record: Record<string, unknown>,
 ): AgentModifiedResource | null {
@@ -230,29 +272,15 @@ function readModifiedResources(payload: Record<string, unknown>): AgentModifiedR
     for (const item of candidate) {
       const record = asRecord(item);
       if (!record) continue;
-      const resource = readSingleModifiedResource(record) ?? {
-        type: readString(record.resource_type) ?? readString(record.type),
-        key:
-          readString(record.resource_key) ??
-          readString(record.key) ??
-          readString(record.id),
-        name: readString(record.name),
-        action: readString(record.resource_action) ?? readString(record.action),
-      };
-      resources.push(resource);
+      const resource = normalizeModifiedResource(record);
+      if (resource) resources.push(resource);
     }
   }
 
   const single = asRecord(payload.resource);
   if (single) {
-    resources.push(
-      readSingleModifiedResource(single) ?? {
-        type: readString(single.resource_type) ?? readString(single.type),
-        key: readString(single.resource_key) ?? readString(single.key) ?? readString(single.id),
-        name: readString(single.name),
-        action: readString(single.resource_action) ?? readString(single.action),
-      },
-    );
+    const resource = normalizeModifiedResource(single);
+    if (resource) resources.push(resource);
   }
 
   const direct = readSingleModifiedResource(payload);
@@ -285,6 +313,7 @@ export function createAgentRunAccumulator(sessionId: string, runId: string): Age
     toolCalls: [],
     modifiedResources: [],
     announcedToolCallIds: new Set(),
+    announcedToolCallKeys: new Set(),
     eventCount: 0,
     toolCallCount: 0,
     isTerminal: false,
@@ -323,20 +352,26 @@ export function reduceAgentEvent(
       const name = readToolName(event.payload);
       if (!name) break;
 
+      const input = readToolInput(event.payload);
+      const fallbackKey = toolCallDedupeKey(name, callId, input);
+
       if (callId && next.announcedToolCallIds.has(callId)) {
+        break;
+      }
+      if (fallbackKey && next.announcedToolCallKeys.has(fallbackKey)) {
         break;
       }
 
       next = {
         ...next,
-        toolCalls: [
-          ...next.toolCalls,
-          { callId, name, input: readToolInput(event.payload) },
-        ],
+        toolCalls: [...next.toolCalls, { callId, name, input }],
         toolCallCount: next.toolCallCount + 1,
         announcedToolCallIds: callId
           ? new Set(next.announcedToolCallIds).add(callId)
           : next.announcedToolCallIds,
+        announcedToolCallKeys: fallbackKey
+          ? new Set(next.announcedToolCallKeys).add(fallbackKey)
+          : next.announcedToolCallKeys,
       };
       break;
     }
@@ -403,5 +438,14 @@ export function markAgentRunTimedOut(state: AgentRunAccumulator): AgentRunAccumu
     status: "timeout",
     isTerminal: true,
     error: state.error ?? "Agent run timed out before completion",
+  };
+}
+
+export function markAgentRunCancelled(state: AgentRunAccumulator): AgentRunAccumulator {
+  return {
+    ...flushTextBuffer(state),
+    status: "cancelled",
+    isTerminal: true,
+    error: state.error ?? "Agent run was cancelled before completion",
   };
 }
