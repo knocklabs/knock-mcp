@@ -1,4 +1,4 @@
-import { TaggedError } from "better-result";
+import { Result, TaggedError } from "better-result";
 
 export interface AgentErrorContext {
   sessionId?: string;
@@ -56,6 +56,14 @@ export function withAgentErrorContext(error: AgentError, ctx: AgentErrorContext)
     sessionId: ctx.sessionId ?? error.sessionId,
     runId: ctx.runId ?? error.runId,
   });
+}
+
+/** Attach session/run ids and lift into a failed Result. */
+export function agentResultErr(
+  error: AgentError,
+  ctx: AgentErrorContext,
+): Result<never, AgentError> {
+  return Result.err(withAgentErrorContext(error, ctx));
 }
 
 export function formatAgentErrorForMcp(error: AgentError): string {

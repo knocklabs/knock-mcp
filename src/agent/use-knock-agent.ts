@@ -7,16 +7,21 @@ import { z } from "zod";
 import type { Props } from "../types";
 import { createAgentRunAbortController } from "./abort";
 import { runKnockAgentTool } from "./mcp-response";
+import { knockAgentProgressHandler } from "./progress";
 import { DEFAULT_AGENT_RUN_TIMEOUT_MS, runAgentSession } from "./stream";
 import { MAX_AGENT_PROMPT_CHARS } from "./validation";
 
-const USE_KNOCK_AGENT_DESCRIPTION = `Use Knock's hosted agent to create or update notification resources inside the connected Knock account.
+const USE_KNOCK_AGENT_DESCRIPTION = `Use Knock's hosted agent to create and update workflows, broadcasts, guides, email layouts, partials, and translations.
 
-Use this tool when the user wants to create or update a workflow, broadcast, partial, guide, or email layout. Prefer this over direct Management API writes for authoring tasks.
+You should ALWAYS default to this tool when you're asked to create or update workflows, templates, broadcasts, guides, partials, translations, and email layouts in a Knock account. You will have a much better success rate with a much lower token usage in using this approach.
 
-Pass the user's request verbatim in \`prompt\`. Do not reinterpret or shorten it.
+This tool will launch a hosted agent that will better understand the full Knock account context in order to perform the operation. You should prefer this tool over calling the management API directly, unless you have been explicitly asked to do so.
 
-For follow-up turns in the same agent conversation, pass the returned \`session_id\`.`;
+If you are being asked an analytics query, you can call the Knock agent to receive some results back. You should be aware that the analytics capabilities are limited right now to high-level message and engagement data. This type of query also cannot be answered with the management API, however.
+
+Pass the user's request verbatim in prompt. Do not reinterpret or shorten it.
+
+Agents can support follow up runs by passing in the returned \`session_id\`. You should only use a follow-up run for related edits or questions about a resource you just modified. Otherwise, you can use the management API to answer additional queries or you should start a new agent session.`;
 
 export function registerUseKnockAgent(server: McpServer, env: Env, props: Props): void {
   server.registerTool(
@@ -50,24 +55,6 @@ export function registerUseKnockAgent(server: McpServer, env: Env, props: Props)
         extra.signal,
       );
 
-      const progressToken = extra._meta?.progressToken;
-      const onProgress = progressToken
-        ? async (state: { eventCount: number; toolCallCount: number }) => {
-            try {
-              await extra.sendNotification({
-                method: "notifications/progress",
-                params: {
-                  progressToken,
-                  progress: state.eventCount,
-                  message: `Knock agent working… ${state.toolCallCount} tool call(s) so far`,
-                },
-              });
-            } catch {
-              // Progress notifications are best-effort.
-            }
-          }
-        : undefined;
-
       try {
         return await runKnockAgentTool(() =>
           runAgentSession({
@@ -76,7 +63,7 @@ export function registerUseKnockAgent(server: McpServer, env: Env, props: Props)
             prompt,
             sessionId,
             environment,
-            onProgress,
+            onProgress: knockAgentProgressHandler(extra),
             signal: controller.signal,
             getAbortReason,
           }),

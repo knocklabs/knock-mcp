@@ -1,9 +1,31 @@
+import {
+  markAgentRunCancelled,
+  markAgentRunTimedOut,
+  type AgentRunAccumulator,
+} from "./events";
+
 export type AgentAbortReason = "timeout" | "client";
 
 export interface AgentRunAbortHandle {
   controller: AbortController;
   getAbortReason: () => AgentAbortReason | undefined;
   clear: () => void;
+}
+
+export function isAbortError(error: unknown): boolean {
+  return (
+    (error instanceof DOMException && error.name === "AbortError") ||
+    (error instanceof Error && error.name === "AbortError")
+  );
+}
+
+export function abortedRunAccumulator(
+  accumulator: AgentRunAccumulator,
+  getAbortReason?: () => AgentAbortReason | undefined,
+): AgentRunAccumulator {
+  return getAbortReason?.() === "client"
+    ? markAgentRunCancelled(accumulator)
+    : markAgentRunTimedOut(accumulator);
 }
 
 /** Combines MCP client abort with a server-side timeout without clobbering cancel reason. */

@@ -39,7 +39,7 @@ export const toolGroups: ToolGroup[] = [
     key: AGENT_GROUP_KEY,
     name: "Knock agent",
     description:
-      "use_knock_agent — delegate creating/updating workflows, broadcasts, partials, guides, and email layouts to Knock's hosted agent",
+      "Use the Knock agent to create and manage workflows, broadcasts, guides, and other resources in your Knock account.",
     categories: [AGENT_CATEGORY],
     enabledByDefault: true,
   },
