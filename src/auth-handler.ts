@@ -477,6 +477,18 @@ app.post("/api/authorize-tools", async (c) => {
     const effectiveGroups = resolveEffectiveSelectedGroups(selectedGroups);
     const resolvedMapiAccessMode = resolveMapiAccessMode(effectiveGroups, mapiAccessMode);
 
+    // `clientId` in KV is our AuthKit upstream client ("Knock MCP"). The MCP host
+    // (Cursor, Claude Desktop, etc.) is `oauthReqInfo.clientId` on the OAuth provider.
+    const mcpClient = oauthReqInfo.clientId
+      ? await c.env.OAUTH_PROVIDER.lookupClient(oauthReqInfo.clientId)
+      : null;
+    const clientApplication = mcpClient?.clientName
+      ? {
+          name: mcpClient.clientName,
+          ...(mcpClient.clientUri ? { url: mcpClient.clientUri } : {}),
+        }
+      : undefined;
+
     const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
       request: oauthReqInfo,
       userId: userId ?? "unknown",
@@ -489,6 +501,7 @@ app.post("/api/authorize-tools", async (c) => {
         email,
         selectedGroups: effectiveGroups,
         ...(resolvedMapiAccessMode !== undefined ? { mapiAccessMode: resolvedMapiAccessMode } : {}),
+        ...(clientApplication ? { clientApplication } : {}),
       } satisfies Props,
     });
 

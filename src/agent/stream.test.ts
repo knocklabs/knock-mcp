@@ -1,6 +1,7 @@
 import { Result } from "better-result";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { KNOCK_MCP_SERVER_VERSION } from "../mcp-server-version";
 import type { Props } from "../types";
 import { AgentApiError } from "./errors";
 import {
@@ -47,7 +48,7 @@ describe("agent request bodies", () => {
       run_id: "run-1",
       prompt: "Create a workflow",
       stream: true,
-      source: "api",
+      source: "mcp",
       context: [{ type: "environment", value: "development" }],
     });
   });
@@ -56,7 +57,7 @@ describe("agent request bodies", () => {
     expect(buildFollowUpRunBody("run-2", "Add a delay step", "staging")).toEqual({
       run_id: "run-2",
       prompt: "Add a delay step",
-      source: "api",
+      source: "mcp",
       context: [{ type: "environment", value: "staging" }],
     });
   });
@@ -117,6 +118,7 @@ describe("runAgentSession", () => {
           Authorization: "Bearer test-token",
           "Content-Type": "application/json",
           "x-knock-client-id": "client-1",
+          "User-Agent": `Knock/v1 MCPServer/${KNOCK_MCP_SERVER_VERSION}`,
         }),
       }),
     );
@@ -124,7 +126,7 @@ describe("runAgentSession", () => {
     expect(requestBody).toMatchObject({
       prompt: "Create a welcome workflow",
       stream: true,
-      source: "api",
+      source: "mcp",
       context: [{ type: "environment", value: "development" }],
     });
     expect(requestBody.id).toEqual(expect.any(String));
@@ -154,7 +156,7 @@ describe("runAgentSession", () => {
     expect(requestBody).toEqual({
       run_id: expect.any(String),
       prompt: "Add a delay step",
-      source: "api",
+      source: "mcp",
       context: [{ type: "environment", value: "staging" }],
     });
   });

@@ -1,8 +1,10 @@
 export type { AgentAbortReason } from "./abort";
 export {
+  AGENT_SESSION_SOURCE,
   buildAgentContext,
   buildCreateSessionBody,
   buildFollowUpRunBody,
+  buildKnockMcpClientHeaders,
   stopAgentSession,
 } from "./session-api";
 export {

@@ -17,6 +17,7 @@ import {
   resolveEffectiveSelectedGroups,
   resolveGroupsToCategories,
 } from "./tool-groups";
+import { KNOCK_MCP_SERVER_VERSION } from "./mcp-server-version";
 import { getOrRefreshKnockToken } from "./token-store";
 
 function createKnockClient(config: {
@@ -44,7 +45,9 @@ function createKnockClient(config: {
 }
 
 export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
-  server = Sentry.wrapMcpServerWithSentry(new McpServer({ name: "Knock", version: "1.2.0" }));
+  server = Sentry.wrapMcpServerWithSentry(
+    new McpServer({ name: "Knock", version: KNOCK_MCP_SERVER_VERSION }),
+  );
 
   async init() {
     const props = this.props;

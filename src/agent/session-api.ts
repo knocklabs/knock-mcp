@@ -12,10 +12,20 @@ import {
   type AgentErrorContext,
 } from "./errors";
 import {
+  buildKnockMcpClientHeaders,
+  type KnockClientApplicationInfo,
+} from "../knock-client-user-agent";
+import {
   validateAgentEnvironment,
   validateAgentPrompt,
   validateAgentSessionId,
 } from "./validation";
+
+/** Body `source` for agent session create and follow-up runs. */
+export const AGENT_SESSION_SOURCE = "mcp";
+
+export type { KnockClientApplicationInfo };
+export { buildKnockMcpClientHeaders };
 
 export interface AgentContextEntry {
   type: string;
@@ -46,7 +56,7 @@ export function buildCreateSessionBody(
     run_id: runId,
     prompt,
     stream: true,
-    source: "api",
+    source: AGENT_SESSION_SOURCE,
     context: buildAgentContext(environment),
   };
 }
@@ -59,7 +69,7 @@ export function buildFollowUpRunBody(
   return {
     run_id: runId,
     prompt,
-    source: "api",
+    source: AGENT_SESSION_SOURCE,
     context: buildAgentContext(environment),
   };
 }
@@ -75,7 +85,7 @@ export async function resolveAgentAuthHeaders(env: Env, props: Props): Promise<R
     headers["x-knock-client-id"] = props.clientId;
   }
 
-  return headers;
+  return { ...headers, ...buildKnockMcpClientHeaders(props.clientApplication) };
 }
 
 export async function stopAgentSession(
