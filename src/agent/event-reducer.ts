@@ -1,5 +1,6 @@
 import {
   createAgentRunAccumulator,
+  finalizeAgentRunAsRunning,
   finalizeAgentRunResult,
   parseAgentEventLine,
   reduceAgentEvent,
@@ -68,4 +69,13 @@ export function finalizeAgentRunOutcome(accumulator: AgentRunAccumulator): Agent
     status: "error",
     error: accumulator.error ?? "Agent run ended without a terminal event",
   });
+}
+
+/** After consuming a full session event log (GET poll) without a terminal event yet. */
+export function finalizeAgentPollOutcome(accumulator: AgentRunAccumulator): AgentRunResult {
+  if (accumulator.isTerminal) {
+    return finalizeAgentRunResult(accumulator);
+  }
+
+  return finalizeAgentRunAsRunning(accumulator);
 }

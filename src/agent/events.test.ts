@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createAgentRunAccumulator,
+  finalizeAgentRunAsRunning,
   finalizeAgentRunResult,
   parseAgentEventLine,
   reduceAgentEvent,
@@ -271,6 +272,87 @@ describe("reduceAgentEvent", () => {
     expect(state.modifiedResources).toEqual([
       { type: "workflow", key: "onboarding-email", name: undefined, action: "created" },
     ]);
+  });
+
+  it("keeps only the latest runStart/runEnd pair when replaying a multi-run session log", () => {
+    let state = createAgentRunAccumulator("session-multi", "run-initial");
+
+    const firstRun = [
+      wireEvent("textContent", { type: "complete", value: "First run output." }),
+      wireEvent("toolCall", {
+        name: "upsert_workflow",
+        callId: "toolu_first",
+        arguments: '{"workflow_key":"first"}',
+      }),
+      wireEvent("signal", {
+        resource_action: "created",
+        resource_key: "first",
+        resource_type: "workflow",
+      }),
+      wireEvent("runEnd"),
+    ];
+
+    for (const line of firstRun) {
+      state = reduceAgentEvent(state, parseAgentEventLine(line)!);
+    }
+
+    expect(state.isTerminal).toBe(true);
+    expect(finalizeAgentRunResult(state).text).toBe("First run output.");
+
+    const followUp = [
+      wireEvent("runStart", { run_id: "run-follow-up" }),
+      wireEvent("textContent", { type: "complete", value: "Follow-up run output." }),
+      wireEvent("toolCall", {
+        name: "upsert_workflow",
+        callId: "toolu_second",
+        arguments: '{"workflow_key":"second"}',
+      }),
+      wireEvent("runEnd"),
+    ];
+
+    for (const line of followUp) {
+      state = reduceAgentEvent(state, parseAgentEventLine(line)!);
+    }
+
+    const result = finalizeAgentRunResult(state);
+
+    expect(result).toMatchObject({
+      status: "complete",
+      sessionId: "session-multi",
+      runId: "run-follow-up",
+      text: "Follow-up run output.",
+      toolCalls: [
+        {
+          callId: "toolu_second",
+          name: "upsert_workflow",
+          input: '{"workflow_key":"second"}',
+        },
+      ],
+      modifiedResources: [],
+    });
+    expect(result.toolCalls).not.toContainEqual(
+      expect.objectContaining({ callId: "toolu_first" }),
+    );
+  });
+
+  it("reports running for the latest run when the session log ends after runStart", () => {
+    let state = createAgentRunAccumulator("session-open", "run-1");
+
+    for (const line of [
+      wireEvent("textContent", { type: "complete", value: "Done with first." }),
+      wireEvent("runEnd"),
+      wireEvent("runStart", { run_id: "run-2" }),
+      wireEvent("textContent", { type: "complete", value: "Still working on follow-up." }),
+    ]) {
+      state = reduceAgentEvent(state, parseAgentEventLine(line)!);
+    }
+
+    expect(state.isTerminal).toBe(false);
+    expect(finalizeAgentRunAsRunning(state)).toMatchObject({
+      status: "running",
+      runId: "run-2",
+      text: "Still working on follow-up.",
+    });
   });
 
   it("ignores unknown event types without throwing", () => {

@@ -5,11 +5,14 @@ export {
   buildCreateSessionBody,
   buildFollowUpRunBody,
   buildKnockMcpClientHeaders,
+  getAgentSessionStream,
   stopAgentSession,
 } from "./session-api";
 export {
-  DEFAULT_AGENT_RUN_TIMEOUT_MS,
   DEFAULT_PROGRESS_THROTTLE_MS,
-  runAgentSession,
-  type RunAgentSessionOptions,
+  DEFAULT_START_STREAM_BUDGET_MS,
+  startAgentRun,
+  streamAgentSessionOnce,
+  type StartAgentRunOptions,
+  type StreamAgentSessionOptions,
 } from "./run-agent-session";

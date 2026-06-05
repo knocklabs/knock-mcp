@@ -184,6 +184,32 @@ export function prepareAgentRun(
   });
 }
 
+export async function getAgentSessionStream(
+  baseUrl: string,
+  sessionId: string,
+  headers: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<Result<Response, AgentError>> {
+  const errorContext: AgentErrorContext = { sessionId, runId: "" };
+  const { "Content-Type": _contentType, ...getHeaders } = headers;
+
+  const responseResult = await Result.tryPromise({
+    try: () =>
+      fetch(`${baseUrl}/agent/sessions/${sessionId}`, {
+        method: "GET",
+        headers: getHeaders,
+        signal,
+      }),
+    catch: toAgentNetworkError,
+  });
+
+  if (Result.isError(responseResult)) {
+    return agentResultErr(responseResult.error, errorContext);
+  }
+
+  return responseResult;
+}
+
 export async function postAgentRun(
   prepared: PreparedAgentRun,
   headers: Record<string, string>,

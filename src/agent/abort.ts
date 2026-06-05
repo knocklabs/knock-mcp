@@ -4,7 +4,7 @@ import {
   type AgentRunAccumulator,
 } from "./events";
 
-export type AgentAbortReason = "timeout" | "client";
+export type AgentAbortReason = "timeout" | "client" | "budget";
 
 export interface AgentRunAbortHandle {
   controller: AbortController;
@@ -42,6 +42,39 @@ export function createAgentRunAbortController(
     }
     controller.abort();
   }, timeoutMs);
+
+  externalSignal.addEventListener(
+    "abort",
+    () => {
+      if (!state.reason) {
+        state.reason = "client";
+      }
+      controller.abort();
+    },
+    { once: true },
+  );
+
+  return {
+    controller,
+    getAbortReason: () => state.reason,
+    clear: () => clearTimeout(timeout),
+  };
+}
+
+/** 45s start stream budget; does not stop the remote run when the budget expires. */
+export function createStartStreamBudgetController(
+  budgetMs: number,
+  externalSignal: AbortSignal,
+): AgentRunAbortHandle {
+  const controller = new AbortController();
+  const state: { reason: AgentAbortReason | undefined } = { reason: undefined };
+
+  const timeout = setTimeout(() => {
+    if (!state.reason) {
+      state.reason = "budget";
+    }
+    controller.abort();
+  }, budgetMs);
 
   externalSignal.addEventListener(
     "abort",

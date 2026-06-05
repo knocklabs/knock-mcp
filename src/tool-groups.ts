@@ -19,7 +19,7 @@ export const CODE_MODE_MAPI_GROUP_KEY = "code-mode-mapi" as const;
 /** Reserved for a future public-API Code Mode group (\`search_api\` / \`execute_api\`). */
 export const CODE_MODE_API_CATEGORY = "__codeMode:api" as const;
 
-/** Sentinel category: registers \`use_knock_agent\` — not a @knocklabs/agent-toolkit category. */
+/** Sentinel category: registers \`start_knock_agent\` / \`get_knock_agent\` — not a @knocklabs/agent-toolkit category. */
 export const AGENT_CATEGORY = "__agent" as const;
 
 /** Consent UI group key for the Knock agent tool. */

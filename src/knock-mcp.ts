@@ -8,7 +8,7 @@ import * as Sentry from "@sentry/cloudflare";
 import { tools, type KnockToolType } from "@knocklabs/agent-toolkit/core";
 
 import { registerMapiCodeMode } from "./code-mode/mapi";
-import { registerUseKnockAgent } from "./agent/use-knock-agent";
+import { registerKnockAgentTools } from "./agent/knock-agent-tools";
 import { getKnockControlBaseUrl } from "./knock-control-url";
 import type { Props } from "./types";
 import {
@@ -84,7 +84,7 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
     }
 
     if (categories.includes(AGENT_CATEGORY)) {
-      registerUseKnockAgent(this.server, this.env, props);
+      registerKnockAgentTools(this.server, this.env, props);
     }
 
     const toolkitCategories = categories.filter((c) => !c.startsWith("__"));

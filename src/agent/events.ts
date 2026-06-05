@@ -1,5 +1,6 @@
 export type AgentEventType =
   | "runInitializing"
+  | "runStart"
   | "prompt"
   | "reasoning"
   | "textContent"
@@ -45,7 +46,7 @@ export interface AgentRunAccumulator {
 }
 
 export interface AgentRunResult {
-  status: "complete" | "error" | "timeout" | "cancelled";
+  status: "running" | "complete" | "error" | "timeout" | "cancelled";
   text: string;
   toolCalls: AgentToolCallSummary[];
   modifiedResources: AgentModifiedResource[];
@@ -320,6 +321,39 @@ export function createAgentRunAccumulator(sessionId: string, runId: string): Age
   };
 }
 
+function readRunIdFromPayload(payload: Record<string, unknown>): string | undefined {
+  return (
+    readString(payload.run_id) ??
+    readString(payload.runId) ??
+    readString(asRecord(payload.run)?.id) ??
+    readString(payload.id)
+  );
+}
+
+/** Begin tracking a new run within the session (follow-ups emit runStart after prior runEnd). */
+function resetAccumulatorForNewRun(
+  state: AgentRunAccumulator,
+  payload: Record<string, unknown>,
+): AgentRunAccumulator {
+  const runId = readRunIdFromPayload(payload) ?? state.runId;
+
+  return {
+    sessionId: state.sessionId,
+    runId,
+    status: "running",
+    textParts: [],
+    textBuffer: "",
+    toolCalls: [],
+    modifiedResources: [],
+    announcedToolCallIds: new Set(),
+    announcedToolCallKeys: new Set(),
+    eventCount: state.eventCount,
+    toolCallCount: 0,
+    isTerminal: false,
+    error: undefined,
+  };
+}
+
 export function reduceAgentEvent(
   state: AgentRunAccumulator,
   event: ParsedAgentEvent,
@@ -330,6 +364,11 @@ export function reduceAgentEvent(
   };
 
   switch (event.type) {
+    case "runStart": {
+      next = resetAccumulatorForNewRun(next, event.payload);
+      break;
+    }
+
     case "runInitializing":
     case "prompt":
     case "reasoning":
@@ -409,6 +448,19 @@ export function reduceAgentEvent(
   }
 
   return next;
+}
+
+export function finalizeAgentRunAsRunning(state: AgentRunAccumulator): AgentRunResult {
+  const flushed = flushTextBuffer(state);
+
+  return {
+    status: "running",
+    text: flushed.textParts.join("\n\n").trim(),
+    toolCalls: flushed.toolCalls,
+    modifiedResources: flushed.modifiedResources,
+    sessionId: flushed.sessionId,
+    runId: flushed.runId,
+  };
 }
 
 export function finalizeAgentRunResult(state: AgentRunAccumulator): AgentRunResult {

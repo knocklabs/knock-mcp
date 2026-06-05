@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
+import { Result } from "better-result";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { KNOCK_MCP_SERVER_VERSION } from "../mcp-server-version";
 import type { Props } from "../types";
@@ -6,6 +7,7 @@ import {
   AGENT_SESSION_SOURCE,
   buildCreateSessionBody,
   buildFollowUpRunBody,
+  getAgentSessionStream,
   resolveAgentAuthHeaders,
 } from "./session-api";
 
@@ -26,6 +28,42 @@ describe("agent session bodies", () => {
       AGENT_SESSION_SOURCE,
     );
     expect(buildFollowUpRunBody("run-2", "prompt", "staging").source).toBe(AGENT_SESSION_SOURCE);
+  });
+
+  it("keeps stream true on create session body", () => {
+    expect(buildCreateSessionBody("s", "r", "p", "development").stream).toBe(true);
+  });
+});
+
+describe("getAgentSessionStream", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("GETs the session NDJSON endpoint without Content-Type", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(null, { status: 200, headers: { "Content-Type": "application/x-ndjson" } }),
+      ),
+    );
+
+    const sessionId = "550e8400-e29b-41d4-a716-446655440000";
+    const headers = await resolveAgentAuthHeaders(baseEnv, baseProps);
+    const result = await getAgentSessionStream(
+      "https://control.knock.app",
+      sessionId,
+      headers,
+    );
+
+    expect(Result.isOk(result)).toBe(true);
+    expect(fetch).toHaveBeenCalledWith(
+      `https://control.knock.app/agent/sessions/${sessionId}`,
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.not.objectContaining({ "Content-Type": "application/json" }),
+      }),
+    );
   });
 });
 

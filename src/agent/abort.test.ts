@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createAgentRunAbortController } from "./abort";
+import { createAgentRunAbortController, createStartStreamBudgetController } from "./abort";
 
 describe("createAgentRunAbortController", () => {
   afterEach(() => {
@@ -31,6 +31,39 @@ describe("createAgentRunAbortController", () => {
 
     vi.advanceTimersByTime(240_000);
     expect(getAbortReason()).toBe("timeout");
+
+    clear();
+  });
+});
+
+describe("createStartStreamBudgetController", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("records budget reason when the timer fires first", () => {
+    vi.useFakeTimers();
+
+    const external = new AbortController();
+    const { getAbortReason, clear } = createStartStreamBudgetController(45_000, external.signal);
+
+    vi.advanceTimersByTime(45_000);
+    expect(getAbortReason()).toBe("budget");
+
+    clear();
+  });
+
+  it("preserves client cancel reason when the budget timer fires afterward", () => {
+    vi.useFakeTimers();
+
+    const external = new AbortController();
+    const { getAbortReason, clear } = createStartStreamBudgetController(45_000, external.signal);
+
+    external.abort();
+    expect(getAbortReason()).toBe("client");
+
+    vi.advanceTimersByTime(45_000);
+    expect(getAbortReason()).toBe("client");
 
     clear();
   });

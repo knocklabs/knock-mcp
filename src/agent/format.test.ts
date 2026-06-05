@@ -72,6 +72,22 @@ describe("formatAgentResult", () => {
     expect(cancelled.content[0].text).toContain("was cancelled");
   });
 
+  it("includes get_knock_agent polling guidance for running results without isError", () => {
+    const running = formatAgentResult({
+      status: "running",
+      text: "Working on it…",
+      toolCalls: [],
+      modifiedResources: [],
+      sessionId: "session-running",
+      runId: "run-running",
+    });
+
+    expect(running.isError).toBeUndefined();
+    expect(running.content[0].text).toContain("get_knock_agent");
+    expect(running.content[0].text).toContain("Status: complete");
+    expect(running.content[0].text).toContain("Status: error");
+  });
+
   it("truncates very large responses", () => {
     const formatted = formatAgentResult({
       status: "complete",

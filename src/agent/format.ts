@@ -6,6 +6,12 @@ export type AgentMcpToolResponse = {
   isError?: boolean;
 };
 
+const GET_KNOCK_AGENT_POLLING_HINT = [
+  "The agent run is still in progress (Status: running).",
+  "Call get_knock_agent with this session_id every few seconds.",
+  "Stop polling when the tool result shows Status: complete (success) or Status: error (failure).",
+].join(" ");
+
 function formatModifiedResources(result: AgentRunResult): string {
   if (result.modifiedResources.length === 0) {
     return "Modified resources: none reported.";
@@ -35,7 +41,7 @@ function formatToolCalls(result: AgentRunResult): string {
 export function formatAgentResult(result: AgentRunResult): AgentMcpToolResponse {
   const sections = [
     `Session ID: ${result.sessionId}`,
-    `Run ID: ${result.runId}`,
+    ...(result.runId ? [`Run ID: ${result.runId}`] : []),
     `Status: ${result.status}`,
   ];
 
@@ -45,17 +51,21 @@ export function formatAgentResult(result: AgentRunResult): AgentMcpToolResponse 
 
   sections.push("", formatToolCalls(result), "", formatModifiedResources(result));
 
+  if (result.status === "running") {
+    sections.push("", GET_KNOCK_AGENT_POLLING_HINT);
+  }
+
   if (result.status === "timeout") {
     sections.push(
       "",
-      "The agent run timed out before completion. Re-run use_knock_agent with the same session_id to continue.",
+      "The agent run timed out before completion. Call get_knock_agent with the same session_id to check progress.",
     );
   }
 
   if (result.status === "cancelled") {
     sections.push(
       "",
-      "The agent run was cancelled before completion. Re-run use_knock_agent with the same session_id to continue if needed.",
+      "The agent run was cancelled before completion. Start a new session or call get_knock_agent if the run may still be active.",
     );
   }
 

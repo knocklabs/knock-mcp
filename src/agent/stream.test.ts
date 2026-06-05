@@ -7,7 +7,8 @@ import { AgentApiError } from "./errors";
 import {
   buildCreateSessionBody,
   buildFollowUpRunBody,
-  runAgentSession,
+  startAgentRun,
+  streamAgentSessionOnce,
   stopAgentSession,
 } from "./stream";
 
@@ -63,7 +64,7 @@ describe("agent request bodies", () => {
   });
 });
 
-describe("runAgentSession", () => {
+describe("startAgentRun", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
@@ -90,7 +91,7 @@ describe("runAgentSession", () => {
 
     const onProgress = vi.fn();
 
-    const result = await runAgentSession({
+    const result = await startAgentRun({
       env: baseEnv,
       props: baseProps,
       prompt: "Create a welcome workflow",
@@ -138,7 +139,7 @@ describe("runAgentSession", () => {
 
     const existingSession = "550e8400-e29b-41d4-a716-446655440000";
 
-    await runAgentSession({
+    await startAgentRun({
       env: baseEnv,
       props: baseProps,
       prompt: "Add a delay step",
@@ -177,7 +178,7 @@ describe("runAgentSession", () => {
 
     const onProgress = vi.fn();
 
-    await runAgentSession({
+    await startAgentRun({
       env: baseEnv,
       props: baseProps,
       prompt: "Inspect resources",
@@ -194,7 +195,7 @@ describe("runAgentSession", () => {
       vi.fn().mockResolvedValue(new Response("Unauthorized", { status: 401 })),
     );
 
-    const result = await runAgentSession({
+    const result = await startAgentRun({
       env: baseEnv,
       props: baseProps,
       prompt: "Create a workflow",
@@ -233,7 +234,7 @@ describe("runAgentSession", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const controller = new AbortController();
-    const resultPromise = runAgentSession({
+    const resultPromise = startAgentRun({
       env: baseEnv,
       props: baseProps,
       prompt: "Create a workflow",
@@ -279,7 +280,7 @@ describe("runAgentSession", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const controller = new AbortController();
-    const resultPromise = runAgentSession({
+    const resultPromise = startAgentRun({
       env: baseEnv,
       props: baseProps,
       prompt: "Create a workflow",
@@ -310,7 +311,7 @@ describe("runAgentSession", () => {
       ),
     );
 
-    const result = await runAgentSession({
+    const result = await startAgentRun({
       env: baseEnv,
       props: baseProps,
       prompt: "Create a workflow",
@@ -348,7 +349,7 @@ describe("runAgentSession", () => {
       ),
     );
 
-    const result = await runAgentSession({
+    const result = await startAgentRun({
       env: baseEnv,
       props: baseProps,
       prompt: "Create a workflow",
@@ -363,7 +364,7 @@ describe("runAgentSession", () => {
   it("rejects invalid session_id values before calling the API", async () => {
     vi.stubGlobal("fetch", vi.fn());
 
-    const result = await runAgentSession({
+    const result = await startAgentRun({
       env: baseEnv,
       props: baseProps,
       prompt: "Create a workflow",
@@ -376,13 +377,55 @@ describe("runAgentSession", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("returns running without stopping the session when the stream budget expires", async () => {
+    const fetchMock = vi.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () => {
+            controller.error(new DOMException("Aborted", "AbortError"));
+          });
+        },
+      });
+
+      return Promise.resolve(
+        new Response(body, {
+          status: 200,
+          headers: { "Content-Type": "application/x-ndjson" },
+        }),
+      );
+    });
+
+    vi.stubGlobal("fetch", fetchMock);
+
+    const controller = new AbortController();
+    const resultPromise = startAgentRun({
+      env: baseEnv,
+      props: baseProps,
+      prompt: "Create a workflow",
+      signal: controller.signal,
+      getAbortReason: () => "budget",
+    });
+
+    await Promise.resolve();
+    controller.abort();
+
+    const result = await resultPromise;
+    expect(Result.isOk(result)).toBe(true);
+    if (Result.isError(result)) return;
+    expect(result.value.status).toBe("running");
+    expect(fetchMock).not.toHaveBeenCalledWith(
+      expect.stringMatching(/\/stop$/),
+      expect.anything(),
+    );
+  });
+
   it("sanitizes HTML error bodies from non-2xx responses", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue(new Response("<html>Unauthorized</html>", { status: 401 })),
     );
 
-    const result = await runAgentSession({
+    const result = await startAgentRun({
       env: baseEnv,
       props: baseProps,
       prompt: "Create a workflow",
@@ -391,6 +434,106 @@ describe("runAgentSession", () => {
     expect(Result.isError(result)).toBe(true);
     if (Result.isOk(result)) return;
     expect(result.error.message).toBe("Agent API request failed with status 401");
+  });
+});
+
+describe("streamAgentSessionOnce", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("GETs the session and reduces the full event log to a complete result", async () => {
+    const sessionId = "550e8400-e29b-41d4-a716-446655440000";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        ndjsonResponse([
+          JSON.stringify({
+            type: "textContent",
+            value: { type: "complete", value: "Still working…" },
+          }),
+          JSON.stringify({ type: "runEnd" }),
+        ]),
+      ),
+    );
+
+    const result = await streamAgentSessionOnce({
+      env: baseEnv,
+      props: baseProps,
+      sessionId,
+    });
+
+    expect(Result.isOk(result)).toBe(true);
+    if (Result.isError(result)) return;
+    expect(result.value.status).toBe("complete");
+    expect(result.value.text).toBe("Still working…");
+    expect(fetch).toHaveBeenCalledWith(
+      `https://control.knock.app/agent/sessions/${sessionId}`,
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("uses only the latest runStart/runEnd pair from a full session log", async () => {
+    const sessionId = "550e8400-e29b-41d4-a716-446655440002";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        ndjsonResponse([
+          JSON.stringify({
+            type: "textContent",
+            value: { type: "complete", value: "First run." },
+          }),
+          JSON.stringify({ type: "runEnd" }),
+          JSON.stringify({ type: "runStart", value: { run_id: "run-follow-up" } }),
+          JSON.stringify({
+            type: "textContent",
+            value: { type: "complete", value: "Follow-up run." },
+          }),
+          JSON.stringify({ type: "runEnd" }),
+        ]),
+      ),
+    );
+
+    const result = await streamAgentSessionOnce({
+      env: baseEnv,
+      props: baseProps,
+      sessionId,
+    });
+
+    expect(Result.isOk(result)).toBe(true);
+    if (Result.isError(result)) return;
+    expect(result.value.status).toBe("complete");
+    expect(result.value.text).toBe("Follow-up run.");
+    expect(result.value.runId).toBe("run-follow-up");
+  });
+
+  it("returns running when the event log has no terminal event yet", async () => {
+    const sessionId = "550e8400-e29b-41d4-a716-446655440001";
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        ndjsonResponse([
+          JSON.stringify({
+            type: "textContent",
+            value: { type: "delta", value: "Partial" },
+          }),
+        ]),
+      ),
+    );
+
+    const result = await streamAgentSessionOnce({
+      env: baseEnv,
+      props: baseProps,
+      sessionId,
+    });
+
+    expect(Result.isOk(result)).toBe(true);
+    if (Result.isError(result)) return;
+    expect(result.value.status).toBe("running");
   });
 });
 
