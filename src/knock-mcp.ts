@@ -8,9 +8,16 @@ import * as Sentry from "@sentry/cloudflare";
 import { tools, type KnockToolType } from "@knocklabs/agent-toolkit/core";
 
 import { registerMapiCodeMode } from "./code-mode/mapi";
+import { registerKnockAgentTools } from "./agent/knock-agent-tools";
 import { getKnockControlBaseUrl } from "./knock-control-url";
 import type { Props } from "./types";
-import { CODE_MODE_MAPI_CATEGORY, resolveEffectiveSelectedGroups, resolveGroupsToCategories } from "./tool-groups";
+import {
+  AGENT_CATEGORY,
+  CODE_MODE_MAPI_CATEGORY,
+  resolveEffectiveSelectedGroups,
+  resolveGroupsToCategories,
+} from "./tool-groups";
+import { KNOCK_MCP_SERVER_VERSION } from "./mcp-server-version";
 import { getOrRefreshKnockToken } from "./token-store";
 
 function createKnockClient(config: {
@@ -38,7 +45,9 @@ function createKnockClient(config: {
 }
 
 export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
-  server = Sentry.wrapMcpServerWithSentry(new McpServer({ name: "Knock", version: "1.2.0" }));
+  server = Sentry.wrapMcpServerWithSentry(
+    new McpServer({ name: "Knock", version: KNOCK_MCP_SERVER_VERSION }),
+  );
 
   async init() {
     const props = this.props;
@@ -74,7 +83,11 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
       registerMapiCodeMode(this.server, this.env, props);
     }
 
-    const toolkitCategories = categories.filter((c) => !c.startsWith("__codeMode:"));
+    if (categories.includes(AGENT_CATEGORY)) {
+      registerKnockAgentTools(this.server, this.env, props);
+    }
+
+    const toolkitCategories = categories.filter((c) => !c.startsWith("__"));
 
     const enabledTools = toolkitCategories.flatMap((cat) =>
       Object.values((tools as Record<string, Record<string, KnockToolType>>)[cat] ?? {}),

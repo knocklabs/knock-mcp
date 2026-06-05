@@ -10,6 +10,7 @@ describe("resolveEffectiveSelectedGroups", () => {
   it("uses default groups when selection is missing or empty", () => {
     const defaults = defaultSelectedGroupKeys();
     expect(defaults).toContain("code-mode-mapi");
+    expect(defaults).toContain("knock-agent");
     expect(resolveEffectiveSelectedGroups(undefined)).toEqual(defaults);
     expect(resolveEffectiveSelectedGroups(null)).toEqual(defaults);
     expect(resolveEffectiveSelectedGroups([])).toEqual(defaults);

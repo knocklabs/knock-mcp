@@ -19,6 +19,12 @@ export const CODE_MODE_MAPI_GROUP_KEY = "code-mode-mapi" as const;
 /** Reserved for a future public-API Code Mode group (\`search_api\` / \`execute_api\`). */
 export const CODE_MODE_API_CATEGORY = "__codeMode:api" as const;
 
+/** Sentinel category: registers \`start_knock_agent\` / \`get_knock_agent\` — not a @knocklabs/agent-toolkit category. */
+export const AGENT_CATEGORY = "__agent" as const;
+
+/** Consent UI group key for the Knock agent tool. */
+export const AGENT_GROUP_KEY = "knock-agent" as const;
+
 export const toolGroups: ToolGroup[] = [
   {
     key: CODE_MODE_MAPI_GROUP_KEY,
@@ -28,6 +34,14 @@ export const toolGroups: ToolGroup[] = [
     categories: [CODE_MODE_MAPI_CATEGORY],
     enabledByDefault: true,
     hidden: true,
+  },
+  {
+    key: AGENT_GROUP_KEY,
+    name: "Knock agent",
+    description:
+      "Use the Knock agent to create and manage workflows, broadcasts, guides, and other resources in your Knock account.",
+    categories: [AGENT_CATEGORY],
+    enabledByDefault: true,
   },
   {
     key: "manage-resources",

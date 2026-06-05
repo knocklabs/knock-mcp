@@ -1,0 +1,367 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  createAgentRunAccumulator,
+  finalizeAgentRunAsRunning,
+  finalizeAgentRunResult,
+  parseAgentEventLine,
+  reduceAgentEvent,
+} from "./events";
+
+function wireEvent(type: string, value?: Record<string, unknown>): string {
+  return JSON.stringify(value ? { type, value } : { type });
+}
+
+describe("parseAgentEventLine", () => {
+  it("parses Knock agent events with a top-level value object", () => {
+    const parsed = parseAgentEventLine(
+      wireEvent("toolCall", {
+        name: "upsert_workflow",
+        callId: "toolu_123",
+        arguments: '{"workflow_key":"onboarding-email"}',
+      }),
+    );
+
+    expect(parsed).toEqual({
+      type: "toolCall",
+      payload: {
+        name: "upsert_workflow",
+        callId: "toolu_123",
+        arguments: '{"workflow_key":"onboarding-email"}',
+      },
+    });
+  });
+
+  it("parses text content nested under value.value", () => {
+    const parsed = parseAgentEventLine(
+      wireEvent("textContent", {
+        type: "complete",
+        value: "Hello from the agent",
+      }),
+    );
+
+    expect(parsed?.type).toBe("textContent");
+    expect(parsed?.payload.value).toBe("Hello from the agent");
+  });
+
+  it("returns null for invalid or empty lines", () => {
+    expect(parseAgentEventLine("")).toBeNull();
+    expect(parseAgentEventLine("not-json")).toBeNull();
+    expect(parseAgentEventLine("{}")).toBeNull();
+  });
+});
+
+describe("reduceAgentEvent", () => {
+  it("accumulates a realistic Knock agent run sequence", () => {
+    let state = createAgentRunAccumulator("session-1", "run-1");
+
+    const events = [
+      wireEvent("runInitializing"),
+      wireEvent("toolCall", {
+        name: "skill",
+        callId: "toolu_skill",
+        arguments: '{"skill_name":"workflows"}',
+      }),
+      wireEvent("toolCall", {
+        name: "bash",
+        callId: "toolu_bash",
+        arguments: '{"command":"cat /knock/channels.json"}',
+      }),
+      wireEvent("textContent", {
+        type: "complete",
+        value: "I have everything I need. Let me create the onboarding workflow now.",
+      }),
+      wireEvent("toolCall", {
+        name: "upsert_workflow",
+        callId: "toolu_upsert",
+        arguments: '{"workflow_key":"onboarding-email"}',
+      }),
+      wireEvent("signal", {
+        action: "modified_resources_updated",
+        resource_action: "created",
+        resource_key: "onboarding-email",
+        resource_type: "workflow",
+        type: "knock:session",
+      }),
+      wireEvent("textContent", {
+        type: "complete",
+        value: "The onboarding workflow is created and ready.",
+      }),
+      wireEvent("runEnd"),
+    ];
+
+    for (const line of events) {
+      const parsed = parseAgentEventLine(line);
+      expect(parsed).not.toBeNull();
+      state = reduceAgentEvent(state, parsed!);
+    }
+
+    const result = finalizeAgentRunResult(state);
+
+    expect(result).toMatchObject({
+      status: "complete",
+      sessionId: "session-1",
+      runId: "run-1",
+      text: [
+        "I have everything I need. Let me create the onboarding workflow now.",
+        "The onboarding workflow is created and ready.",
+      ].join("\n\n"),
+      toolCalls: [
+        { callId: "toolu_skill", name: "skill", input: '{"skill_name":"workflows"}' },
+        { callId: "toolu_bash", name: "bash", input: '{"command":"cat /knock/channels.json"}' },
+        {
+          callId: "toolu_upsert",
+          name: "upsert_workflow",
+          input: '{"workflow_key":"onboarding-email"}',
+        },
+      ],
+      modifiedResources: [
+        { type: "workflow", key: "onboarding-email", action: "created" },
+      ],
+    });
+  });
+
+  it("concatenates streaming text deltas into one block", () => {
+    let state = createAgentRunAccumulator("session-delta", "run-delta");
+
+    state = reduceAgentEvent(state, {
+      type: "textContent",
+      payload: { is_delta: true, content: "Hello" },
+    });
+    state = reduceAgentEvent(state, {
+      type: "textContent",
+      payload: { is_delta: true, content: ", world" },
+    });
+    state = reduceAgentEvent(state, {
+      type: "textContent",
+      payload: { is_delta: false },
+    });
+    state = reduceAgentEvent(state, { type: "runEnd", payload: {} });
+
+    expect(finalizeAgentRunResult(state).text).toBe("Hello, world");
+  });
+
+  it("dedupes repeated toolCall events for the same call id", () => {
+    let state = createAgentRunAccumulator("session-tools", "run-tools");
+
+    state = reduceAgentEvent(state, {
+      type: "toolCall",
+      payload: {
+        name: "bash",
+        callId: "toolu_same",
+        arguments: '{"command":"cat /knock/channels.json"}',
+      },
+    });
+    state = reduceAgentEvent(state, {
+      type: "toolCall",
+      payload: {
+        name: "bash",
+        callId: "toolu_same",
+        arguments: '{"command":"cat /knock/channels.json", "description":"updated"}',
+      },
+    });
+
+    expect(state.toolCalls).toHaveLength(1);
+    expect(state.toolCallCount).toBe(1);
+  });
+
+  it("dedupes repeated toolCall events without callId using name and arguments", () => {
+    let state = createAgentRunAccumulator("session-tools-no-id", "run-tools-no-id");
+
+    state = reduceAgentEvent(state, {
+      type: "toolCall",
+      payload: {
+        name: "bash",
+        arguments: '{"command":"cat /knock/channels.json"}',
+      },
+    });
+    state = reduceAgentEvent(state, {
+      type: "toolCall",
+      payload: {
+        name: "bash",
+        arguments: '{"command":"cat /knock/channels.json"}',
+      },
+    });
+
+    expect(state.toolCalls).toHaveLength(1);
+    expect(state.toolCallCount).toBe(1);
+  });
+
+  it("records multiple toolCall events without callId when arguments are absent", () => {
+    let state = createAgentRunAccumulator("session-anonymous-tools", "run-anonymous-tools");
+
+    state = reduceAgentEvent(state, {
+      type: "toolCall",
+      payload: { name: "bash" },
+    });
+    state = reduceAgentEvent(state, {
+      type: "toolCall",
+      payload: { name: "bash" },
+    });
+
+    expect(state.toolCalls).toHaveLength(2);
+    expect(state.toolCallCount).toBe(2);
+  });
+
+  it("ignores modified resources missing type and key", () => {
+    let state = createAgentRunAccumulator("session-resources", "run-resources");
+    state = reduceAgentEvent(state, {
+      type: "signal",
+      payload: {
+        resources: [{ action: "created" }, { type: "workflow", key: "welcome", action: "created" }],
+      },
+    });
+
+    expect(state.modifiedResources).toEqual([
+      { type: "workflow", key: "welcome", name: undefined, action: "created" },
+    ]);
+  });
+
+  it("ignores reasoning events for final output", () => {
+    let state = createAgentRunAccumulator("session-reasoning", "run-reasoning");
+
+    state = reduceAgentEvent(state, {
+      type: "reasoning",
+      payload: { type: "complete", value: "Thinking about workflows..." },
+    });
+    state = reduceAgentEvent(state, {
+      type: "textContent",
+      payload: { type: "complete", value: "Done." },
+    });
+    state = reduceAgentEvent(state, { type: "runEnd", payload: {} });
+
+    expect(finalizeAgentRunResult(state).text).toBe("Done.");
+  });
+
+  it("captures runError terminal events using error_message", () => {
+    let state = createAgentRunAccumulator("session-2", "run-2");
+    state = reduceAgentEvent(state, {
+      type: "runError",
+      payload: { error_message: "Something went wrong" },
+    });
+
+    const result = finalizeAgentRunResult(state);
+    expect(result.status).toBe("error");
+    expect(result.error).toBe("Something went wrong");
+  });
+
+  it("ignores runInitializing without changing terminal state", () => {
+    const state = createAgentRunAccumulator("session-3", "run-3");
+    const next = reduceAgentEvent(state, {
+      type: "runInitializing",
+      payload: {},
+    });
+    expect(next.eventCount).toBe(1);
+    expect(next.status).toBe("running");
+    expect(next.isTerminal).toBe(false);
+  });
+
+  it("parses modified resources using resource_type and resource_key on signals", () => {
+    let state = createAgentRunAccumulator("session-4", "run-4");
+    state = reduceAgentEvent(state, {
+      type: "signal",
+      payload: {
+        action: "modified_resources_updated",
+        resource_action: "created",
+        resource_key: "onboarding-email",
+        resource_type: "workflow",
+        type: "knock:session",
+      },
+    });
+
+    expect(state.modifiedResources).toEqual([
+      { type: "workflow", key: "onboarding-email", name: undefined, action: "created" },
+    ]);
+  });
+
+  it("keeps only the latest runStart/runEnd pair when replaying a multi-run session log", () => {
+    let state = createAgentRunAccumulator("session-multi", "run-initial");
+
+    const firstRun = [
+      wireEvent("textContent", { type: "complete", value: "First run output." }),
+      wireEvent("toolCall", {
+        name: "upsert_workflow",
+        callId: "toolu_first",
+        arguments: '{"workflow_key":"first"}',
+      }),
+      wireEvent("signal", {
+        resource_action: "created",
+        resource_key: "first",
+        resource_type: "workflow",
+      }),
+      wireEvent("runEnd"),
+    ];
+
+    for (const line of firstRun) {
+      state = reduceAgentEvent(state, parseAgentEventLine(line)!);
+    }
+
+    expect(state.isTerminal).toBe(true);
+    expect(finalizeAgentRunResult(state).text).toBe("First run output.");
+
+    const followUp = [
+      wireEvent("runStart", { run_id: "run-follow-up" }),
+      wireEvent("textContent", { type: "complete", value: "Follow-up run output." }),
+      wireEvent("toolCall", {
+        name: "upsert_workflow",
+        callId: "toolu_second",
+        arguments: '{"workflow_key":"second"}',
+      }),
+      wireEvent("runEnd"),
+    ];
+
+    for (const line of followUp) {
+      state = reduceAgentEvent(state, parseAgentEventLine(line)!);
+    }
+
+    const result = finalizeAgentRunResult(state);
+
+    expect(result).toMatchObject({
+      status: "complete",
+      sessionId: "session-multi",
+      runId: "run-follow-up",
+      text: "Follow-up run output.",
+      toolCalls: [
+        {
+          callId: "toolu_second",
+          name: "upsert_workflow",
+          input: '{"workflow_key":"second"}',
+        },
+      ],
+      modifiedResources: [],
+    });
+    expect(result.toolCalls).not.toContainEqual(
+      expect.objectContaining({ callId: "toolu_first" }),
+    );
+  });
+
+  it("reports running for the latest run when the session log ends after runStart", () => {
+    let state = createAgentRunAccumulator("session-open", "run-1");
+
+    for (const line of [
+      wireEvent("textContent", { type: "complete", value: "Done with first." }),
+      wireEvent("runEnd"),
+      wireEvent("runStart", { run_id: "run-2" }),
+      wireEvent("textContent", { type: "complete", value: "Still working on follow-up." }),
+    ]) {
+      state = reduceAgentEvent(state, parseAgentEventLine(line)!);
+    }
+
+    expect(state.isTerminal).toBe(false);
+    expect(finalizeAgentRunAsRunning(state)).toMatchObject({
+      status: "running",
+      runId: "run-2",
+      text: "Still working on follow-up.",
+    });
+  });
+
+  it("ignores unknown event types without throwing", () => {
+    const state = createAgentRunAccumulator("session-5", "run-5");
+    const next = reduceAgentEvent(state, {
+      type: "unknownEvent",
+      payload: { foo: "bar" },
+    });
+    expect(next.eventCount).toBe(1);
+    expect(next.status).toBe("running");
+  });
+});
