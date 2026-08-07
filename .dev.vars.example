@@ -18,5 +18,11 @@ COOKIE_ENCRYPTION_KEY=your_random_32_byte_hex_secret_here
 # Sentry DSN for error reporting (leave blank to disable in dev)
 SENTRY_DSN=
 
+# PostHog project API key for MCP analytics (leave blank to disable in dev)
+POSTHOG_PROJECT_API_KEY=
+
+# PostHog ingestion host (use https://eu.i.posthog.com for EU-hosted projects)
+POSTHOG_HOST=https://us.i.posthog.com
+
 # Environment tag attached to Sentry events (development|staging|production)
 INFRA_ENV=development

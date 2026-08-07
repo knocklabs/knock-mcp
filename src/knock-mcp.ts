@@ -19,6 +19,7 @@ import {
 } from "./tool-groups";
 import { KNOCK_MCP_SERVER_VERSION } from "./mcp-server-version";
 import { getOrRefreshKnockToken } from "./token-store";
+import { instrumentPostHogMcp } from "./posthog";
 
 function createKnockClient(config: {
   serviceToken: string;
@@ -63,6 +64,8 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
 
     Sentry.setUser({ id: props.userId, email: props.email });
     Sentry.setTag("knock.client_id", props.clientId);
+
+    instrumentPostHogMcp(this.server, this.env, props, (promise) => this.ctx.waitUntil(promise));
 
     const getClient = async () => {
       const accessToken = await getOrRefreshKnockToken(this.env, props.tokenId);
