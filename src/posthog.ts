@@ -6,7 +6,10 @@ import type { Props } from "./types";
 
 const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
 
-type PostHogEnv = Pick<Env, "POSTHOG_PROJECT_API_KEY" | "POSTHOG_HOST">;
+type PostHogEnv = {
+  POSTHOG_PROJECT_API_KEY?: string;
+  POSTHOG_HOST?: string;
+};
 type PostHogIdentity = Pick<Props, "userId" | "email">;
 
 export function instrumentPostHogMcp(
