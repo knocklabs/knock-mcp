@@ -2,6 +2,9 @@
   "name": "@knocklabs/mcp",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "^20.20.0 || >=22.22.0"
+  },
   "scripts": {
     "build:client": "cd client && npm ci && npm run build",
     "build": "npm run build:client && npm run cf-typegen && tsc -p .",
