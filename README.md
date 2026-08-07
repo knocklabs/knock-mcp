@@ -63,7 +63,7 @@ If you need to run the MCP server yourself (e.g. for development or custom deplo
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org) 18+
+- [Node.js](https://nodejs.org) 20.20+ or 22.22+
 - A [Cloudflare account](https://dash.cloudflare.com/sign-up) with Workers enabled
 - A Knock account with AuthKit configured
 
