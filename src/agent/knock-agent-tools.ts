@@ -17,11 +17,9 @@ import { MAX_AGENT_PROMPT_CHARS } from "./validation";
 
 const START_KNOCK_AGENT_DESCRIPTION = `Use Knock's hosted agent to create and update workflows, broadcasts, guides, email layouts, partials, and translations.
 
-You should ALWAYS default to this tool when you're asked to create or update workflows, templates, broadcasts, guides, partials, translations, and email layouts in a Knock account. You will have a much better success rate with a much lower token usage in using this approach.
+Prefer this tool when creating or updating those resources in a Knock account — the hosted agent has full account context and usually needs fewer tokens than calling the Management API directly. Use Management API code mode (\`search_mapi\` / \`execute_mapi\` / \`execute_mapi_write\`) when you need a specific API call, or when the user asks to use the API.
 
-This tool will launch a hosted agent that will better understand the full Knock account context in order to perform the operation. You should prefer this tool over calling the management API directly, unless you have been explicitly asked to do so.
-
-If you are being asked an analytics query, you can call the Knock agent to receive some results back. You should be aware that the analytics capabilities are limited right now to high-level message and engagement data. This type of query also cannot be answered with the management API, however.
+For analytics questions, the Knock agent can return high-level message and engagement data. Those queries are not available through the Management API.
 
 Pass the user's request verbatim in prompt. Do not reinterpret or shorten it.
 
@@ -30,7 +28,7 @@ This tool waits up to ~45 seconds, then returns a consolidated result. Read the 
 - Status: error — the run failed; read the Error line.
 - Status: running — the run is still going; save the Session ID and poll with get_knock_agent until Status is complete or error.
 
-Agents can support follow-up runs by passing in the returned session_id. You should only use a follow-up run for related edits or questions about a resource you just modified. Otherwise, use the management API or start a new agent session.`;
+Agents can support follow-up runs by passing in the returned session_id. Use a follow-up run only for related edits or questions about a resource you just modified. Otherwise, use the Management API or start a new agent session.`;
 
 const GET_KNOCK_AGENT_DESCRIPTION = `Poll an in-progress Knock agent session and return a consolidated result (agent text, tool calls, modified resources, and a Status line).
 
@@ -51,6 +49,7 @@ export function registerKnockAgentTools(server: McpServer, env: Env, props: Prop
   server.registerTool(
     "start_knock_agent",
     {
+      title: "Start Knock agent",
       description: START_KNOCK_AGENT_DESCRIPTION,
       inputSchema: {
         prompt: z
@@ -62,6 +61,11 @@ export function registerKnockAgentTools(server: McpServer, env: Env, props: Prop
           .uuid()
           .optional()
           .describe("Existing agent session ID for follow-up runs"),
+      },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
       },
     },
     async (
@@ -96,12 +100,18 @@ export function registerKnockAgentTools(server: McpServer, env: Env, props: Prop
   server.registerTool(
     "get_knock_agent",
     {
+      title: "Get Knock agent status",
       description: GET_KNOCK_AGENT_DESCRIPTION,
       inputSchema: {
         session_id: z
           .string()
           .uuid()
           .describe("Agent session ID from start_knock_agent"),
+      },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: true,
       },
     },
     async ({ session_id: sessionId }) => {

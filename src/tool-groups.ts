@@ -10,7 +10,7 @@ export interface ToolGroup {
   deprecated?: boolean;
 }
 
-/** Sentinel category: registers \`search_mapi\` / \`execute_mapi\` (Code Mode) — not a @knocklabs/agent-toolkit category. */
+/** Sentinel category: registers \`search_mapi\` / \`execute_mapi\` / \`execute_mapi_write\` (Code Mode) — not a @knocklabs/agent-toolkit category. */
 export const CODE_MODE_MAPI_CATEGORY = "__codeMode:mapi" as const;
 
 /** Consent UI group key for Management API code mode (must match client). */
@@ -30,7 +30,7 @@ export const toolGroups: ToolGroup[] = [
     key: CODE_MODE_MAPI_GROUP_KEY,
     name: "Management API (code mode)",
     description:
-      "search_mapi + execute_mapi — full Knock Management API access in ~1k tokens (OpenAPI + sandboxed code)",
+      "search_mapi + execute_mapi (+ execute_mapi_write when Manage is on) — full Knock Management API access in ~1k tokens (OpenAPI + sandboxed code)",
     categories: [CODE_MODE_MAPI_CATEGORY],
     enabledByDefault: true,
     hidden: true,
