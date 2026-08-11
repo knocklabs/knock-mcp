@@ -20,11 +20,16 @@ import {
 import { KNOCK_MCP_SERVER_VERSION } from "./mcp-server-version";
 import { getOrRefreshKnockToken } from "./token-store";
 
-function toolkitToolIsManage(category: string, toolKey: string): boolean {
-  const permissions = (
-    toolPermissions as Record<string, { read?: string[]; manage?: string[] }>
-  )[category];
-  return Boolean(permissions?.manage?.includes(toolKey));
+type ToolkitPermissionTier = {
+  read?: string[];
+  manage?: string[];
+  trigger?: string[];
+};
+
+/** Read-only only when the tool is in the read tier; manage/trigger/unlisted are side-effecting. */
+function toolkitToolIsReadOnly(category: string, toolKey: string): boolean {
+  const permissions = (toolPermissions as Record<string, ToolkitPermissionTier>)[category];
+  return Boolean(permissions?.read?.includes(toolKey));
 }
 
 function createKnockClient(config: {
@@ -105,7 +110,7 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
         const toolParams = (tool.parameters ?? z.object({})) as unknown as z.ZodObject<
           z.ZodRawShape
         >;
-        const isManage = toolkitToolIsManage(cat, toolKey);
+        const isReadOnly = toolkitToolIsReadOnly(cat, toolKey);
 
         this.server.registerTool(
           tool.method,
@@ -113,15 +118,15 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
             title: tool.name,
             description: tool.description,
             inputSchema: toolParams.shape,
-            annotations: isManage
+            annotations: isReadOnly
               ? {
-                  readOnlyHint: false,
-                  destructiveHint: true,
+                  readOnlyHint: true,
+                  destructiveHint: false,
                   openWorldHint: true,
                 }
               : {
-                  readOnlyHint: true,
-                  destructiveHint: false,
+                  readOnlyHint: false,
+                  destructiveHint: true,
                   openWorldHint: true,
                 },
           },
