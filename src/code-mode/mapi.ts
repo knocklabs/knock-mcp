@@ -7,7 +7,7 @@ import { registerCodeModeVariant } from "./core";
 
 /**
  * Code Mode for the Knock Management API (`KNOCK_CONTROL_URL`).
- * Registers \`search_mapi\`, \`execute_mapi\` (GET), and \`execute_mapi_write\` when write access is enabled.
+ * Registers \`search_mapi\`, \`execute_mapi_read\` (GET), and \`execute_mapi_write\` when write access is enabled.
  */
 export function registerMapiCodeMode(server: McpServer, env: Env, props: Props): void {
   const accessMode = props.mapiAccessMode ?? "read_write";

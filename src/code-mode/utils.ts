@@ -76,7 +76,7 @@ export function validateHttpMethod(
   if (!WRITE_HTTP_METHODS.has(method)) {
     return Result.err(
       new HttpMethodError({
-        message: `This tool is write-only. "${method}" is not allowed — use execute_* for GET requests.`,
+        message: `This tool is write-only. "${method}" is not allowed — use execute_*_read for GET requests.`,
       }),
     );
   }

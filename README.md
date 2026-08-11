@@ -46,7 +46,7 @@ When connecting, you choose exactly which tool groups to enable. **By default**,
 
 | Group | Description |
 |---|---|
-| **Management API (code mode)** | `search_mapi`, `execute_mapi` (GET), and `execute_mapi_write` (POST/PUT/PATCH/DELETE when Manage is enabled) — explore the [OpenAPI spec](https://control.knock.app/v1/openapi) and call the Knock Management API from sandboxed JavaScript ([Code Mode](https://blog.cloudflare.com/code-mode-mcp/)). On connect, choose **Read only** or **Read & write**. A future **public API** variant will use the `search_api` / `execute_api` prefix. |
+| **Management API (code mode)** | `search_mapi`, `execute_mapi_read` (GET), and `execute_mapi_write` (POST/PUT/PATCH/DELETE when Manage is enabled) — explore the [OpenAPI spec](https://control.knock.app/v1/openapi) and call the Knock Management API from sandboxed JavaScript ([Code Mode](https://blog.cloudflare.com/code-mode-mcp/)). On connect, choose **Read only** or **Read & write**. A future **public API** variant will use the `search_api` / `execute_api_read` / `execute_api_write` prefix. |
 | **Manage resources** | Create and manage notification workflows, channels, templates, email layouts, partials, and other configuration (classic toolkit) |
 | **Commits** | Commit and promote changes across environments |
 | **Debug** | Inspect environments and view sent message logs |
@@ -103,7 +103,7 @@ cp .dev.vars.example .dev.vars
 |---|---|
 | `KNOCK_AUTH_URL` | Your Knock AuthKit domain (e.g. `https://your-app.authkit.app`) |
 | `KNOCK_DASHBOARD_URL` | Knock dashboard URL (e.g. `https://dashboard.knock.app`) |
-| `KNOCK_CONTROL_URL` | Management API control plane (e.g. `https://control.knock.app`) — used for Code Mode OpenAPI fetch and `execute_mapi` / `execute_mapi_write` |
+| `KNOCK_CONTROL_URL` | Management API control plane (e.g. `https://control.knock.app`) — used for Code Mode OpenAPI fetch and `execute_mapi_read` / `execute_mapi_write` |
 | `COOKIE_ENCRYPTION_KEY` | Random 32-byte hex string — generate with `openssl rand -hex 32` |
 | `DEV_ORIGIN` | Set to `http://localhost:8788` for local dev only |
 | `SENTRY_DSN` | Sentry DSN for error reporting; leave blank to disable |
@@ -194,7 +194,7 @@ Cloudflare Worker (this repo)
     │  ├─ /mcp          — MCP endpoint (Durable Object)
     │  ├─ /authorize    — OAuth consent + tool selection UI
     │  └─ /callback     — Token exchange with Knock AuthKit
-    │       search_mapi / execute_mapi / execute_mapi_write  — Code Mode
+    │       search_mapi / execute_mapi_read / execute_mapi_write  — Code Mode
     │       optional classic toolkit tools
     │
     ▼

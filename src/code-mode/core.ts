@@ -129,7 +129,7 @@ function humanizeVariant(variant: string): string {
 }
 
 /**
- * Registers \`search_<variant>\`, \`execute_<variant>\` (GET), and optionally
+ * Registers \`search_<variant>\`, \`execute_<variant>_read\` (GET), and optionally
  * \`execute_<variant>_write\` on the given MCP server.
  * Auth and HTTP I/O run on the host; the sandbox only invokes ${namespace}.spec() / ${namespace}.request().
  */
@@ -143,12 +143,12 @@ export function registerCodeModeVariant(
     config;
   const v = variant;
   const searchName = `search_${v}`;
-  const executeName = `execute_${v}`;
+  const executeReadName = `execute_${v}_read`;
   const executeWriteName = `execute_${v}_write`;
   const writesEnabled = accessMode === "read_write";
   const accessNote = writesEnabled
-    ? `This session allows **read and write**. Use \`${executeName}\` for \`GET\` and \`${executeWriteName}\` for \`POST\`/\`PUT\`/\`PATCH\`/\`DELETE\`.`
-    : `This session is **read-only**: only \`${executeName}\` (\`GET\`) is available.`;
+    ? `This session allows **read and write**. Use \`${executeReadName}\` for \`GET\` and \`${executeWriteName}\` for \`POST\`/\`PUT\`/\`PATCH\`/\`DELETE\`.`
+    : `This session is **read-only**: only \`${executeReadName}\` (\`GET\`) is available.`;
 
   const executor = new DynamicWorkerExecutor({
     loader: env.LOADER,
@@ -213,7 +213,7 @@ export function registerCodeModeVariant(
 
 ${accessNote}
 
-Use \`${searchName}\` to explore or filter the OpenAPI spec for the **${v}** API before calling \`${executeName}\`${writesEnabled ? ` or \`${executeWriteName}\`` : ""}. All $ref pointers are pre-resolved inline.${writesEnabled ? "" : " The spec returned here includes **GET** operations only."}
+Use \`${searchName}\` to explore or filter the OpenAPI spec for the **${v}** API before calling \`${executeReadName}\`${writesEnabled ? ` or \`${executeWriteName}\`` : ""}. All $ref pointers are pre-resolved inline.${writesEnabled ? "" : " The spec returned here includes **GET** operations only."}
 
 Types:
 ${SPEC_TYPES(namespace)}
@@ -234,13 +234,13 @@ async () => {
   );
 
   server.registerTool(
-    executeName,
+    executeReadName,
     {
       description: `${description}
 
 ${accessNote}
 
-Use this tool (Code Mode: \`${executeName}\`) for **read-only** \`${variantLabel}\` calls at ${baseUrl} via \`${namespace}.request({ method: "GET", ... })\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host.${writesEnabled ? ` For create/update/delete, use \`${executeWriteName}\` instead.` : ""}
+Use this tool (Code Mode: \`${executeReadName}\`) for **read-only** \`${variantLabel}\` calls at ${baseUrl} via \`${namespace}.request({ method: "GET", ... })\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host.${writesEnabled ? ` For create/update/delete, use \`${executeWriteName}\` instead.` : ""}
 
 ${REQUEST_RESPONSE_GUIDE(namespace)}
 
@@ -275,7 +275,7 @@ async () => {
 
 ${accessNote}
 
-Use this tool (Code Mode: \`${executeWriteName}\`) for **write** \`${variantLabel}\` calls at ${baseUrl} via \`${namespace}.request({ method: "POST"|"PUT"|"PATCH"|"DELETE", ... })\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host. For \`GET\`, use \`${executeName}\` instead.
+Use this tool (Code Mode: \`${executeWriteName}\`) for **write** \`${variantLabel}\` calls at ${baseUrl} via \`${namespace}.request({ method: "POST"|"PUT"|"PATCH"|"DELETE", ... })\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host. For \`GET\`, use \`${executeReadName}\` instead.
 
 ${REQUEST_RESPONSE_GUIDE(namespace)}
 
