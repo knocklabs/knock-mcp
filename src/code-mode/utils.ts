@@ -50,19 +50,33 @@ export function resolveVariantApiUrl(
 
 export const ALLOWED_HTTP_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE"]);
 
-export type CodeModeAccessMode = "read" | "read_write";
+/** Host-enforced HTTP access for a single Code Mode execute tool. */
+export type CodeModeAccessMode = "read" | "write" | "read_write";
 
 export const READ_ONLY_HTTP_METHODS = new Set(["GET"]);
+export const WRITE_HTTP_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 export function validateHttpMethod(
   accessMode: CodeModeAccessMode,
   method: string,
 ): Result<void, HttpMethodError> {
   if (accessMode === "read_write") return Result.ok(undefined);
-  if (!READ_ONLY_HTTP_METHODS.has(method)) {
+
+  if (accessMode === "read") {
+    if (!READ_ONLY_HTTP_METHODS.has(method)) {
+      return Result.err(
+        new HttpMethodError({
+          message: `This tool is read-only. "${method}" is not allowed — use GET only, or call execute_*_write when write access is enabled.`,
+        }),
+      );
+    }
+    return Result.ok(undefined);
+  }
+
+  if (!WRITE_HTTP_METHODS.has(method)) {
     return Result.err(
       new HttpMethodError({
-        message: `This MCP session is read-only. "${method}" is not allowed — use GET only, or reconnect and allow read & write access.`,
+        message: `This tool is write-only. "${method}" is not allowed — use execute_*_read for GET requests.`,
       }),
     );
   }

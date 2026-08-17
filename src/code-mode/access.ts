@@ -6,7 +6,7 @@ export function isMapiCodeModeEnabled(readEnabled: boolean, manageEnabled: boole
   return readEnabled || manageEnabled;
 }
 
-/** Map Read/Manage toggles to host-enforced HTTP access for execute_mapi. */
+/** Map Read/Manage toggles to session-level Management API access (read vs read+write tools). */
 export function deriveMapiAccessMode(
   readEnabled: boolean,
   manageEnabled: boolean,

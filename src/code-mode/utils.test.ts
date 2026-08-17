@@ -68,4 +68,15 @@ describe("validateHttpMethod", () => {
     const get = validateHttpMethod("read", "GET");
     expect(Result.isOk(get)).toBe(true);
   });
+
+  it("allows only write methods in write mode", () => {
+    const post = validateHttpMethod("write", "POST");
+    expect(Result.isOk(post)).toBe(true);
+
+    const get = validateHttpMethod("write", "GET");
+    expect(Result.isError(get)).toBe(true);
+    if (Result.isError(get)) {
+      expect(get.error.message).toMatch(/write-only/);
+    }
+  });
 });

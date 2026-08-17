@@ -20,8 +20,12 @@ export interface CodeModeVariantConfig {
   namespace: string;
   baseUrl: string;
   description: string;
-  /** Host-enforced HTTP access for execute_* sandbox requests. Defaults to read_write. */
-  accessMode?: CodeModeAccessMode;
+  /**
+   * Session-level access from OAuth consent.
+   * `"read"` registers search + GET execute only.
+   * `"read_write"` also registers a separate write execute tool.
+   */
+  accessMode?: "read" | "read_write";
   resolveAuth: (env: Env, props: Props) => Promise<{ headers: Record<string, string> }>;
 }
 
@@ -70,10 +74,27 @@ interface OpenApiSpec {
 declare const ${namespace}: { spec(): Promise<OpenApiSpec> };
 `.trim();
 
-const REQUEST_TYPES = (namespace: string) =>
+const READ_REQUEST_TYPES = (namespace: string) =>
   `
 interface RequestOptions {
-  method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  method: "GET";
+  path: string;
+  query?: Record<string, string | number | boolean | undefined>;
+  headers?: Record<string, string>;
+}
+/** Wrapper returned by ${namespace}.request() — the API body is in \`result\`, not at the top level. */
+interface RequestResponse {
+  status: number;
+  ok: boolean;
+  result: unknown;
+}
+declare const ${namespace}: { request(options: RequestOptions): Promise<RequestResponse> };
+`.trim();
+
+const WRITE_REQUEST_TYPES = (namespace: string) =>
+  `
+interface RequestOptions {
+  method: "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
   query?: Record<string, string | number | boolean | undefined>;
   body?: unknown;
@@ -103,8 +124,13 @@ Always read API fields from \`res.result\`, not from \`res\` (e.g. \`res.result.
 When the user asks for the "exact result," return the full \`${namespace}.request(...)\` value unless they ask for a projection.
 `.trim();
 
+function humanizeVariant(variant: string): string {
+  return variant.toUpperCase();
+}
+
 /**
- * Registers \`search_<variant>\` and \`execute_<variant>\` on the given MCP server.
+ * Registers \`search_<variant>\`, \`execute_<variant>_read\` (GET), and optionally
+ * \`execute_<variant>_write\` on the given MCP server.
  * Auth and HTTP I/O run on the host; the sandbox only invokes ${namespace}.spec() / ${namespace}.request().
  */
 export function registerCodeModeVariant(
@@ -117,11 +143,12 @@ export function registerCodeModeVariant(
     config;
   const v = variant;
   const searchName = `search_${v}`;
-  const executeName = `execute_${v}`;
-  const accessNote =
-    accessMode === "read"
-      ? "This session is **read-only**: only `GET` is allowed on `execute_*`."
-      : "This session allows **read and write** (`GET`, `POST`, `PUT`, `PATCH`, `DELETE`).";
+  const executeReadName = `execute_${v}_read`;
+  const executeWriteName = `execute_${v}_write`;
+  const writesEnabled = accessMode === "read_write";
+  const accessNote = writesEnabled
+    ? `This session allows **read and write**. Use \`${executeReadName}\` for \`GET\` and \`${executeWriteName}\` for \`POST\`/\`PUT\`/\`PATCH\`/\`DELETE\`.`
+    : `This session is **read-only**: only \`${executeReadName}\` (\`GET\`) is available.`;
 
   const executor = new DynamicWorkerExecutor({
     loader: env.LOADER,
@@ -129,12 +156,20 @@ export function registerCodeModeVariant(
     timeout: 30_000,
   });
 
-  const requestHandlerConfig: RequestHandlerConfig = {
+  const readRequestHandlerConfig: RequestHandlerConfig = {
     baseUrl,
     resolveAuth,
     env,
     props,
-    accessMode,
+    accessMode: "read",
+  };
+
+  const writeRequestHandlerConfig: RequestHandlerConfig = {
+    baseUrl,
+    resolveAuth,
+    env,
+    props,
+    accessMode: "write",
   };
 
   // Split providers like @cloudflare/codemode openApiMcpServer: search only gets spec(),
@@ -145,20 +180,31 @@ export function registerCodeModeVariant(
       spec: {
         execute: async () => {
           const spec = await getResolvedOpenAPISpec(env, v);
-          return accessMode === "read" ? filterOpenAPISpecToReadOnly(spec) : spec;
+          return writesEnabled ? spec : filterOpenAPISpecToReadOnly(spec);
         },
       },
     },
   });
 
-  const executeProvider = resolveProvider({
+  const executeReadProvider = resolveProvider({
     name: namespace,
     tools: {
       request: {
-        execute: createRequestHandler(requestHandlerConfig),
+        execute: createRequestHandler(readRequestHandlerConfig),
       },
     },
   });
+
+  const executeWriteProvider = resolveProvider({
+    name: namespace,
+    tools: {
+      request: {
+        execute: createRequestHandler(writeRequestHandlerConfig),
+      },
+    },
+  });
+
+  const variantLabel = humanizeVariant(v);
 
   server.registerTool(
     searchName,
@@ -167,7 +213,7 @@ export function registerCodeModeVariant(
 
 ${accessNote}
 
-Use \`${searchName}\` to explore or filter the OpenAPI spec for the **${v}** API before calling \`${executeName}\`. All $ref pointers are pre-resolved inline.${accessMode === "read" ? " The spec returned here includes **GET** operations only." : ""}
+Use \`${searchName}\` to explore or filter the OpenAPI spec for the **${v}** API before calling \`${executeReadName}\`${writesEnabled ? ` or \`${executeWriteName}\`` : ""}. All $ref pointers are pre-resolved inline.${writesEnabled ? "" : " The spec returned here includes **GET** operations only."}
 
 Types:
 ${SPEC_TYPES(namespace)}
@@ -188,18 +234,18 @@ async () => {
   );
 
   server.registerTool(
-    executeName,
+    executeReadName,
     {
       description: `${description}
 
 ${accessNote}
 
-Use this tool (Code Mode: \`${executeName}\`) when you need to call the **${v}** API at ${baseUrl}. Execute JavaScript that calls it via \`${namespace}.request(...)\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host.
+Use this tool (Code Mode: \`${executeReadName}\`) for **read-only** \`${variantLabel}\` calls at ${baseUrl} via \`${namespace}.request({ method: "GET", ... })\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host.${writesEnabled ? ` For create/update/delete, use \`${executeWriteName}\` instead.` : ""}
 
 ${REQUEST_RESPONSE_GUIDE(namespace)}
 
 Types:
-${REQUEST_TYPES(namespace)}
+${READ_REQUEST_TYPES(namespace)}
 
 Your code must be a single JavaScript async arrow function (no TypeScript).
 Example:
@@ -215,6 +261,44 @@ async () => {
       inputSchema: { code: z.string().describe("JavaScript async arrow function to execute") },
     },
     async ({ code }) =>
-      runCodeModeTool(() => runCodeModeExecution(() => executor.execute(code, [executeProvider]))),
+      runCodeModeTool(() =>
+        runCodeModeExecution(() => executor.execute(code, [executeReadProvider])),
+      ),
+  );
+
+  if (!writesEnabled) return;
+
+  server.registerTool(
+    executeWriteName,
+    {
+      description: `${description}
+
+${accessNote}
+
+Use this tool (Code Mode: \`${executeWriteName}\`) for **write** \`${variantLabel}\` calls at ${baseUrl} via \`${namespace}.request({ method: "POST"|"PUT"|"PATCH"|"DELETE", ... })\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host. For \`GET\`, use \`${executeReadName}\` instead.
+
+${REQUEST_RESPONSE_GUIDE(namespace)}
+
+Types:
+${WRITE_REQUEST_TYPES(namespace)}
+
+Your code must be a single JavaScript async arrow function (no TypeScript).
+Example:
+async () => {
+  const res = await ${namespace}.request({
+    method: "PUT",
+    path: "/v1/workflows/welcome",
+    query: { environment: "development" },
+    body: { name: "Welcome", steps: [] },
+  });
+  return { status: res.status, result: res.result };
+}
+`,
+      inputSchema: { code: z.string().describe("JavaScript async arrow function to execute") },
+    },
+    async ({ code }) =>
+      runCodeModeTool(() =>
+        runCodeModeExecution(() => executor.execute(code, [executeWriteProvider])),
+      ),
   );
 }
