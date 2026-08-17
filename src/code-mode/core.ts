@@ -209,6 +209,7 @@ export function registerCodeModeVariant(
   server.registerTool(
     searchName,
     {
+      title: `Search ${variantLabel} OpenAPI`,
       description: `${description}
 
 ${accessNote}
@@ -228,6 +229,11 @@ async () => {
       inputSchema: {
         code: z.string().describe("JavaScript async arrow function to search the spec"),
       },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ code }) =>
       runCodeModeTool(() => runCodeModeExecution(() => executor.execute(code, [searchProvider]))),
@@ -236,6 +242,7 @@ async () => {
   server.registerTool(
     executeReadName,
     {
+      title: `Execute ${variantLabel} (read)`,
       description: `${description}
 
 ${accessNote}
@@ -259,6 +266,11 @@ async () => {
 }
 `,
       inputSchema: { code: z.string().describe("JavaScript async arrow function to execute") },
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        openWorldHint: true,
+      },
     },
     async ({ code }) =>
       runCodeModeTool(() =>
@@ -271,6 +283,7 @@ async () => {
   server.registerTool(
     executeWriteName,
     {
+      title: `Execute ${variantLabel} (write)`,
       description: `${description}
 
 ${accessNote}
@@ -295,6 +308,11 @@ async () => {
 }
 `,
       inputSchema: { code: z.string().describe("JavaScript async arrow function to execute") },
+      annotations: {
+        readOnlyHint: false,
+        destructiveHint: true,
+        openWorldHint: true,
+      },
     },
     async ({ code }) =>
       runCodeModeTool(() =>

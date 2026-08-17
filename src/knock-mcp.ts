@@ -5,7 +5,7 @@ import KnockMgmt from "@knocklabs/mgmt";
 import { Knock } from "@knocklabs/node";
 import * as Sentry from "@sentry/cloudflare";
 
-import { tools, type KnockToolType } from "@knocklabs/agent-toolkit/core";
+import { tools, toolPermissions, type KnockToolType } from "@knocklabs/agent-toolkit/core";
 
 import { registerMapiCodeMode } from "./code-mode/mapi";
 import { registerKnockAgentTools } from "./agent/knock-agent-tools";
@@ -19,6 +19,18 @@ import {
 } from "./tool-groups";
 import { KNOCK_MCP_SERVER_VERSION } from "./mcp-server-version";
 import { getOrRefreshKnockToken } from "./token-store";
+
+type ToolkitPermissionTier = {
+  read?: string[];
+  manage?: string[];
+  trigger?: string[];
+};
+
+/** Read-only only when the tool is in the read tier; manage/trigger/unlisted are side-effecting. */
+function toolkitToolIsReadOnly(category: string, toolKey: string): boolean {
+  const permissions = (toolPermissions as Record<string, ToolkitPermissionTier>)[category];
+  return Boolean(permissions?.read?.includes(toolKey));
+}
 
 function createKnockClient(config: {
   serviceToken: string;
@@ -89,30 +101,49 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
 
     const toolkitCategories = categories.filter((c) => !c.startsWith("__"));
 
-    const enabledTools = toolkitCategories.flatMap((cat) =>
-      Object.values((tools as Record<string, Record<string, KnockToolType>>)[cat] ?? {}),
-    );
+    for (const cat of toolkitCategories) {
+      const categoryTools =
+        (tools as Record<string, Record<string, KnockToolType>>)[cat] ?? {};
 
-    enabledTools.forEach((tool) => {
-      // Agent-toolkit may ship zod v3 schemas; root uses zod v4 — normalize via unknown.
-      const toolParams = (tool.parameters ?? z.object({})) as unknown as z.ZodObject<z.ZodRawShape>;
+      for (const [toolKey, tool] of Object.entries(categoryTools)) {
+        // Agent-toolkit may ship zod v3 schemas; root uses zod v4 — normalize via unknown.
+        const toolParams = (tool.parameters ?? z.object({})) as unknown as z.ZodObject<
+          z.ZodRawShape
+        >;
+        const isReadOnly = toolkitToolIsReadOnly(cat, toolKey);
 
-      this.server.registerTool(
-        tool.method,
-        { description: tool.description, inputSchema: toolParams.shape },
-        async (arg: unknown) => {
-          Sentry.setTag("knock.tool", tool.method);
-          const { knockClient, config } = await getClient();
-          // Toolkit types may resolve @knocklabs/* from a different copy (e.g. npm link).
-          const res = await tool.bindExecute(
-            knockClient as unknown as Parameters<typeof tool.bindExecute>[0],
-            config,
-          )(arg);
-          return {
-            content: [{ type: "text" as const, text: JSON.stringify(res) }],
-          };
-        },
-      );
-    });
+        this.server.registerTool(
+          tool.method,
+          {
+            title: tool.name,
+            description: tool.description,
+            inputSchema: toolParams.shape,
+            annotations: isReadOnly
+              ? {
+                  readOnlyHint: true,
+                  destructiveHint: false,
+                  openWorldHint: true,
+                }
+              : {
+                  readOnlyHint: false,
+                  destructiveHint: true,
+                  openWorldHint: true,
+                },
+          },
+          async (arg: unknown) => {
+            Sentry.setTag("knock.tool", tool.method);
+            const { knockClient, config } = await getClient();
+            // Toolkit types may resolve @knocklabs/* from a different copy (e.g. npm link).
+            const res = await tool.bindExecute(
+              knockClient as unknown as Parameters<typeof tool.bindExecute>[0],
+              config,
+            )(arg);
+            return {
+              content: [{ type: "text" as const, text: JSON.stringify(res) }],
+            };
+          },
+        );
+      }
+    }
   }
 }
