@@ -2,6 +2,9 @@
   "name": "@knocklabs/mcp",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": "^20.20.0 || >=22.22.0"
+  },
   "scripts": {
     "build:client": "cd client && npm ci && npm run build",
     "build": "npm run build:client && npm run cf-typegen && tsc -p .",
@@ -22,11 +25,13 @@
     "@knocklabs/mgmt": "^0.23.3",
     "@knocklabs/node": "^1.32.0",
     "@modelcontextprotocol/sdk": "1.28.0",
+    "@posthog/mcp": "0.10.8",
     "@sentry/cloudflare": "^10.49.0",
     "agents": "^0.8.7",
     "better-result": "^2.9.2",
     "hono": "^4.12.23",
     "jose": "^6.2.3",
+    "posthog-node": "5.48.1",
     "zod": "^4.4.3"
   },
   "overrides": {
