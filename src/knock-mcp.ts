@@ -118,13 +118,16 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
             title: tool.name,
             description: tool.description,
             inputSchema: toolParams.shape,
+            // Claude Connectors Directory checks annotations.title (not only top-level title).
             annotations: isReadOnly
               ? {
+                  title: tool.name,
                   readOnlyHint: true,
                   destructiveHint: false,
                   openWorldHint: true,
                 }
               : {
+                  title: tool.name,
                   readOnlyHint: false,
                   destructiveHint: true,
                   openWorldHint: true,

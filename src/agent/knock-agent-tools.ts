@@ -62,7 +62,9 @@ export function registerKnockAgentTools(server: McpServer, env: Env, props: Prop
           .optional()
           .describe("Existing agent session ID for follow-up runs"),
       },
+      // Claude Connectors Directory checks annotations.title (not only top-level title).
       annotations: {
+        title: "Start Knock agent",
         readOnlyHint: false,
         destructiveHint: true,
         openWorldHint: true,
@@ -109,6 +111,7 @@ export function registerKnockAgentTools(server: McpServer, env: Env, props: Prop
           .describe("Agent session ID from start_knock_agent"),
       },
       annotations: {
+        title: "Get Knock agent status",
         readOnlyHint: true,
         destructiveHint: false,
         openWorldHint: true,
