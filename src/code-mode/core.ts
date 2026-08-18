@@ -205,11 +205,14 @@ export function registerCodeModeVariant(
   });
 
   const variantLabel = humanizeVariant(v);
+  const searchTitle = `Search ${variantLabel} OpenAPI`;
+  const executeReadTitle = `Execute ${variantLabel} (read)`;
+  const executeWriteTitle = `Execute ${variantLabel} (write)`;
 
   server.registerTool(
     searchName,
     {
-      title: `Search ${variantLabel} OpenAPI`,
+      title: searchTitle,
       description: `${description}
 
 ${accessNote}
@@ -229,7 +232,9 @@ async () => {
       inputSchema: {
         code: z.string().describe("JavaScript async arrow function to search the spec"),
       },
+      // Claude Connectors Directory checks annotations.title (not only top-level title).
       annotations: {
+        title: searchTitle,
         readOnlyHint: true,
         destructiveHint: false,
         openWorldHint: false,
@@ -242,7 +247,7 @@ async () => {
   server.registerTool(
     executeReadName,
     {
-      title: `Execute ${variantLabel} (read)`,
+      title: executeReadTitle,
       description: `${description}
 
 ${accessNote}
@@ -267,6 +272,7 @@ async () => {
 `,
       inputSchema: { code: z.string().describe("JavaScript async arrow function to execute") },
       annotations: {
+        title: executeReadTitle,
         readOnlyHint: true,
         destructiveHint: false,
         openWorldHint: true,
@@ -283,7 +289,7 @@ async () => {
   server.registerTool(
     executeWriteName,
     {
-      title: `Execute ${variantLabel} (write)`,
+      title: executeWriteTitle,
       description: `${description}
 
 ${accessNote}
@@ -309,6 +315,7 @@ async () => {
 `,
       inputSchema: { code: z.string().describe("JavaScript async arrow function to execute") },
       annotations: {
+        title: executeWriteTitle,
         readOnlyHint: false,
         destructiveHint: true,
         openWorldHint: true,
