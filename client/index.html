@@ -1,8 +1,16 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" class="tgph">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      (function () {
+        var d = document.documentElement;
+        var value = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        d.setAttribute("data-tgph-appearance", value);
+        d.style.colorScheme = value;
+      })();
+    </script>
     <title>Knock — Authorize</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
