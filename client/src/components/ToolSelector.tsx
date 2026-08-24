@@ -99,7 +99,7 @@ export function ToolSelector({ session }: Props) {
         </Text>
       )}
 
-      <Stack direction="column" gap="1">
+      <Stack direction="column" gap="1" w="full">
         <Heading as="h1" size="3">
           Select capabilities to grant
         </Heading>
@@ -110,7 +110,7 @@ export function ToolSelector({ session }: Props) {
       </Stack>
 
       {loadStatus === "ready" && (
-        <Stack direction="column" gap="2">
+        <Stack direction="column" gap="2" w="full">
           <CapabilityToggle
             name="Read resources"
             description="Inspect Knock configuration via the Management API (GET requests)"

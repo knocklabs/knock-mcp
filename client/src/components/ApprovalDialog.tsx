@@ -36,7 +36,7 @@ export function ApprovalDialog({ params }: Props) {
 
   return (
     <KnockCard>
-      <Stack direction="column" gap="1">
+      <Stack direction="column" gap="1" w="full">
         <Heading as="h1" size="3">
           {clientName} is requesting access
         </Heading>
@@ -46,12 +46,8 @@ export function ApprovalDialog({ params }: Props) {
       </Stack>
 
       {/* Client info */}
-      <Box border="px" borderColor="gray-4" borderRadius="3" p="4">
-        <Stack direction="column" gap="2">
-          <Text as="span" size="2" weight="medium" color="default">
-            {clientName}
-          </Text>
-
+      <Box border="px" borderColor="gray-4" borderRadius="3" p="4" w="full" minW="0">
+        <Stack direction="column" gap="2" w="full" minW="0">
           {client.clientUri && (
             <ClientRow label="Website">
               <a href={client.clientUri} target="_blank" rel="noopener noreferrer">
@@ -74,15 +70,20 @@ export function ApprovalDialog({ params }: Props) {
             </ClientRow>
           )}
           {client.redirectUris && client.redirectUris.length > 0 && (
-            <ClientRow label="Redirect URIs">
-              <Stack direction="column" gap="0_5">
-                {client.redirectUris.map((uri) => (
-                  <Text key={uri} as="span" size="1" color="gray">
-                    {uri}
-                  </Text>
-                ))}
-              </Stack>
-            </ClientRow>
+            <Stack direction="column" gap="1" w="full" minW="0">
+              <Text as="span" size="2" color="default">
+                Redirect URIs
+              </Text>
+              <Box w="full" minW="0" style={{ overflowX: "auto" }}>
+                <Stack direction="column" gap="0_5">
+                  {client.redirectUris.map((uri) => (
+                    <Text key={uri} as="span" size="1" color="gray" style={{ whiteSpace: "nowrap" }}>
+                      {uri}
+                    </Text>
+                  ))}
+                </Stack>
+              </Box>
+            </Stack>
           )}
           {client.contacts && client.contacts.length > 0 && (
             <ClientRow label="Contact">{client.contacts.join(", ")}</ClientRow>
@@ -128,8 +129,8 @@ export function ApprovalDialog({ params }: Props) {
 
 function ClientRow({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <Stack direction="row" align="flex-start" gap="3">
-      <Text as="span" size="2" color="default" style={{ minWidth: "120px" }}>
+    <Stack direction="row" align="flex-start" gap="3" w="full">
+      <Text as="span" size="2" color="default">
         {label}
       </Text>
       <Text as="span" size="2" color="gray" style={{ wordBreak: "break-all" }}>
