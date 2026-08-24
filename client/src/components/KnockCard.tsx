@@ -8,15 +8,15 @@ interface Props {
 
 export function KnockCard({ children }: Props) {
   return (
-    <Stack className="tgph">
+    <Stack className="tgph" w="full" maxW="120" mx="auto">
       <Box
         bg="surface-1"
         shadow="2"
         w="full"
+        maxW="120"
         borderRadius="4"
         border="px"
         overflow="hidden"
-        style={{ width: "480px" }}
       >
         <Stack direction="row" align="center" gap="2" px="5" py="4" className="card-header">
           <KnockLogo />
@@ -25,7 +25,7 @@ export function KnockCard({ children }: Props) {
           </Text>
         </Stack>
 
-        <Stack direction="column" gap="5" p="6">
+        <Stack direction="column" gap="5" p="6" w="full" minW="0">
           {children}
         </Stack>
       </Box>

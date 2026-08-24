@@ -21,6 +21,11 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+#root {
+  width: 100%;
+  max-width: 480px;
+}
+
 .card-header {
   border-bottom: 1px solid var(--tgph-gray-4);
 }
