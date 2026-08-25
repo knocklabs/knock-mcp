@@ -18,7 +18,11 @@ import {
   resolveGroupsToCategories,
 } from "./tool-groups";
 import { KNOCK_MCP_SERVER_VERSION } from "./mcp-server-version";
-import { resolveKnockAccessToken } from "./token-store";
+import {
+  applySessionSentryContext,
+  requireSessionAuth,
+  resolveKnockAccessToken,
+} from "./session-auth";
 
 type ToolkitPermissionTier = {
   read?: string[];
@@ -32,11 +36,7 @@ function toolkitToolIsReadOnly(category: string, toolKey: string): boolean {
   return Boolean(permissions?.read?.includes(toolKey));
 }
 
-function createKnockClient(config: {
-  serviceToken: string;
-  clientId: string;
-  baseURL: string;
-}) {
+function createKnockClient(config: { serviceToken: string; clientId: string; baseURL: string }) {
   const defaultHeaders: Record<string, string> = {
     "x-knock-client-id": config.clientId,
   };
@@ -63,20 +63,15 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
 
   async init() {
     const props = this.props;
-    if (!props?.serviceToken && !props?.tokenId) {
-      throw new Error("MCP session missing Knock credentials; please re-authenticate.");
-    }
-    if (!props.clientId) {
+    requireSessionAuth(props);
+    if (!props?.clientId) {
       // Sessions created before clientId was added to Props (pre-2026-03-24) land here.
       // Their requests to mAPI would silently 401 because we wouldn't send x-knock-client-id;
       // fail loudly instead so the MCP client surfaces the need to re-auth.
       throw new Error("MCP session missing clientId; please re-authenticate.");
     }
 
-    Sentry.setUser({ id: props.userId ?? props.accountSlug, email: props.email });
-    Sentry.setTag("knock.client_id", props.clientId);
-    Sentry.setTag("knock.auth_kind", props.authKind ?? "oauth");
-    if (props.accountSlug) Sentry.setTag("knock.account_slug", props.accountSlug);
+    applySessionSentryContext(props);
 
     const getClient = async () => {
       const accessToken = await resolveKnockAccessToken(this.env, props);
@@ -104,14 +99,12 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
     const toolkitCategories = categories.filter((c) => !c.startsWith("__"));
 
     for (const cat of toolkitCategories) {
-      const categoryTools =
-        (tools as Record<string, Record<string, KnockToolType>>)[cat] ?? {};
+      const categoryTools = (tools as Record<string, Record<string, KnockToolType>>)[cat] ?? {};
 
       for (const [toolKey, tool] of Object.entries(categoryTools)) {
         // Agent-toolkit may ship zod v3 schemas; root uses zod v4 — normalize via unknown.
-        const toolParams = (tool.parameters ?? z.object({})) as unknown as z.ZodObject<
-          z.ZodRawShape
-        >;
+        const toolParams = (tool.parameters ??
+          z.object({})) as unknown as z.ZodObject<z.ZodRawShape>;
         const isReadOnly = toolkitToolIsReadOnly(cat, toolKey);
 
         this.server.registerTool(

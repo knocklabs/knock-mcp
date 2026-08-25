@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import type { Props } from "../types";
 import { getKnockControlBaseUrl } from "../knock-control-url";
-import { resolveKnockAccessToken } from "../token-store";
+import { resolveKnockAccessToken } from "../session-auth";
 import { registerCodeModeVariant } from "./core";
 
 /**

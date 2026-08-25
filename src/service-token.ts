@@ -1,31 +1,28 @@
 import type { ResolveExternalTokenResult } from "@cloudflare/workers-oauth-provider";
 
 import { getKnockControlBaseUrl } from "./knock-control-url";
-import { allToolGroupKeys } from "./tool-groups";
-import type { Props } from "./types";
+import { buildServiceTokenProps } from "./session-auth";
+import { sha256Hex } from "./sha256";
+import {
+  KNOCK_SERVICE_TOKEN_PREFIX,
+  SERVICE_TOKEN_CLIENT_ID,
+  type ServiceTokenIdentity,
+} from "./types";
 
-/** Knock Management API service tokens (`https://docs.knock.app/developer-tools/service-tokens`). */
-export const KNOCK_SERVICE_TOKEN_PREFIX = "knock_st_";
+export { KNOCK_SERVICE_TOKEN_PREFIX, SERVICE_TOKEN_CLIENT_ID, type ServiceTokenIdentity };
 
-/** Sentinel `x-knock-client-id` for service-token MCP sessions (no AuthKit client). */
-export const SERVICE_TOKEN_CLIENT_ID = "knock-mcp-service-token";
+export { buildServiceTokenProps } from "./session-auth";
 
 const IDENTITY_CACHE_TTL_SECONDS = 15 * 60;
 const IDENTITY_CACHE_KEY_PREFIX = "service-token-identity:v2:";
 
-export interface ServiceTokenIdentity {
-  accountSlug: string;
-  accountName: string;
-  serviceTokenName?: string | null;
-}
-
-type ServiceTokenKv = {
+type IdentityCacheKv = {
   get(key: string): Promise<string | null>;
   put(key: string, value: string, options?: { expirationTtl?: number }): Promise<void>;
 };
 
 type ServiceTokenEnv = {
-  OAUTH_KV: ServiceTokenKv;
+  OAUTH_KV: IdentityCacheKv;
   KNOCK_CONTROL_URL: string;
 };
 
@@ -33,28 +30,8 @@ export function isKnockServiceToken(token: string): boolean {
   return token.startsWith(KNOCK_SERVICE_TOKEN_PREFIX);
 }
 
-/**
- * Build MCP session props for a validated service token.
- * Service-token sessions enable every tool group with read/write Management
- * API access; the token's own scopes are the real authorization boundary.
- */
-export function buildServiceTokenProps(
-  serviceToken: string,
-  identity?: ServiceTokenIdentity,
-): Props {
-  return {
-    authKind: "service_token",
-    serviceToken,
-    clientId: SERVICE_TOKEN_CLIENT_ID,
-    selectedGroups: allToolGroupKeys(),
-    mapiAccessMode: "read_write",
-    ...(identity ? { accountSlug: identity.accountSlug, accountName: identity.accountName } : {}),
-  };
-}
-
 export async function hashServiceToken(token: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return sha256Hex(token);
 }
 
 function identityCacheKey(tokenHash: string): string {
@@ -68,14 +45,15 @@ export function parseWhoamiIdentity(body: unknown): ServiceTokenIdentity | null 
   if (record.type === "oauth_context") return null;
   return {
     accountSlug: record.account_slug,
-    accountName: typeof record.account_name === "string" ? record.account_name : record.account_slug,
+    accountName:
+      typeof record.account_name === "string" ? record.account_name : record.account_slug,
     serviceTokenName:
       typeof record.service_token_name === "string" ? record.service_token_name : null,
   };
 }
 
 async function readCachedIdentity(
-  kv: ServiceTokenKv,
+  kv: IdentityCacheKv,
   tokenHash: string,
 ): Promise<ServiceTokenIdentity | null> {
   try {
@@ -90,7 +68,7 @@ async function readCachedIdentity(
 }
 
 async function writeCachedIdentity(
-  kv: ServiceTokenKv,
+  kv: IdentityCacheKv,
   tokenHash: string,
   identity: ServiceTokenIdentity,
 ): Promise<void> {

@@ -2,7 +2,7 @@ import { Result } from "better-result";
 
 import type { Props } from "../types";
 import { getKnockControlBaseUrl } from "../knock-control-url";
-import { resolveKnockAccessToken } from "../token-store";
+import { resolveKnockAccessToken } from "../session-auth";
 import {
   AgentApiError,
   AgentStreamError,
@@ -74,7 +74,10 @@ export function buildFollowUpRunBody(
   };
 }
 
-export async function resolveAgentAuthHeaders(env: Env, props: Props): Promise<Record<string, string>> {
+export async function resolveAgentAuthHeaders(
+  env: Env,
+  props: Props,
+): Promise<Record<string, string>> {
   const token = await resolveKnockAccessToken(env, props);
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
@@ -161,7 +164,10 @@ export function prepareAgentRun(
     return Result.err(promptResult.error);
   }
 
-  const environmentResult = validateAgentEnvironment(input.environment ?? "development", errorContext);
+  const environmentResult = validateAgentEnvironment(
+    input.environment ?? "development",
+    errorContext,
+  );
   if (Result.isError(environmentResult)) {
     return Result.err(environmentResult.error);
   }

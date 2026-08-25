@@ -1,10 +1,32 @@
 import type { KnockClientApplicationInfo } from "./knock-client-user-agent";
 
+export type { KnockClientApplicationInfo };
+
+/** Knock Management API service tokens (`https://docs.knock.app/developer-tools/service-tokens`). */
+export const KNOCK_SERVICE_TOKEN_PREFIX = "knock_st_";
+
+/** Sentinel `x-knock-client-id` for service-token MCP sessions (no AuthKit client). */
+export const SERVICE_TOKEN_CLIENT_ID = "knock-mcp-service-token";
+
 /** OAuth / tool-selection props stored on the MCP Durable Object (see workers-oauth-provider). */
 export type MapiAccessMode = "read" | "read_write";
 
 export type AuthKind = "oauth" | "service_token";
 
+export interface ServiceTokenIdentity {
+  accountSlug: string;
+  accountName: string;
+  serviceTokenName?: string | null;
+}
+
+/**
+ * Persistence bag on the MCP Durable Object.
+ *
+ * Dual auth is encoded as optional fields because workers-oauth-provider
+ * stores a flat `Record` and legacy OAuth sessions omit `authKind`.
+ * Do not branch on `tokenId` / `serviceToken` at call sites — use
+ * `sessionAuthFromProps` / `resolveKnockAccessToken` in `session-auth.ts`.
+ */
 export interface Props extends Record<string, unknown> {
   /** KV pointer for AuthKit tokens. Absent on service-token sessions. */
   tokenId?: string;

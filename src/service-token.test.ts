@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { allToolGroupKeys } from "./tool-groups";
 import {
   SERVICE_TOKEN_CLIENT_ID,
   buildServiceTokenProps,
@@ -66,31 +65,6 @@ describe("parseWhoamiIdentity", () => {
 
   it("rejects payloads without an account slug", () => {
     expect(parseWhoamiIdentity({ type: "service_token", account_name: "Acme" })).toBeNull();
-  });
-});
-
-describe("buildServiceTokenProps", () => {
-  it("enables every tool group with read/write Management API access", () => {
-    expect(buildServiceTokenProps("knock_st_secret")).toEqual({
-      authKind: "service_token",
-      serviceToken: "knock_st_secret",
-      clientId: SERVICE_TOKEN_CLIENT_ID,
-      selectedGroups: allToolGroupKeys(),
-      mapiAccessMode: "read_write",
-    });
-  });
-
-  it("includes whoami account identity when provided", () => {
-    expect(
-      buildServiceTokenProps("knock_st_secret", {
-        accountSlug: "acme",
-        accountName: "Acme",
-        serviceTokenName: "CI",
-      }),
-    ).toMatchObject({
-      accountSlug: "acme",
-      accountName: "Acme",
-    });
   });
 });
 

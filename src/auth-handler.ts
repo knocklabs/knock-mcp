@@ -4,9 +4,9 @@ import { Hono } from "hono";
 import * as jose from "jose";
 import * as Sentry from "@sentry/cloudflare";
 
-import type { Props } from "./types";
 import { toolGroups, resolveEffectiveSelectedGroups } from "./tool-groups";
 import { resolveMapiAccessMode } from "./code-mode/access";
+import { buildOauthProps } from "./session-auth";
 import { storeKnockTokens } from "./token-store";
 import {
   addApprovedClient,
@@ -504,15 +504,15 @@ app.post("/api/authorize-tools", async (c) => {
       userId: userId ?? "unknown",
       metadata: {},
       scope: [],
-      props: {
+      props: buildOauthProps({
         tokenId,
         clientId,
         userId,
         email,
         selectedGroups: effectiveGroups,
-        ...(resolvedMapiAccessMode !== undefined ? { mapiAccessMode: resolvedMapiAccessMode } : {}),
-        ...(clientApplication ? { clientApplication } : {}),
-      } satisfies Props,
+        mapiAccessMode: resolvedMapiAccessMode,
+        clientApplication,
+      }),
     });
 
     return c.json({ redirectTo });

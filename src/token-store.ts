@@ -1,8 +1,6 @@
 import * as jose from "jose";
 import * as Sentry from "@sentry/cloudflare";
 
-import type { Props } from "./types";
-
 const TOKEN_REFRESH_BUFFER_SECONDS = 60;
 const TOKEN_KV_TTL_SECONDS = 60 * 60 * 24 * 30; // 30 days
 
@@ -88,18 +86,4 @@ export async function getOrRefreshKnockToken(
 
   await storeKnockTokens(env, tokenId, updated);
   return updated.accessToken;
-}
-
-/** Resolve the Knock Management API bearer token for this MCP session. */
-export async function resolveKnockAccessToken(
-  env: Pick<Env, "OAUTH_KV">,
-  props: Pick<Props, "serviceToken" | "tokenId">,
-): Promise<string> {
-  if (props.serviceToken) {
-    return props.serviceToken;
-  }
-  if (!props.tokenId) {
-    throw new Error("MCP session missing Knock credentials; please re-authenticate.");
-  }
-  return getOrRefreshKnockToken(env, props.tokenId);
 }

@@ -12,8 +12,7 @@ import {
   stopAgentSession,
 } from "./stream";
 
-vi.mock("../token-store", () => ({
-  getOrRefreshKnockToken: vi.fn().mockResolvedValue("test-token"),
+vi.mock("../session-auth", () => ({
   resolveKnockAccessToken: vi.fn().mockResolvedValue("test-token"),
 }));
 
@@ -45,7 +44,9 @@ function ndjsonResponse(lines: string[], init?: ResponseInit): Response {
 
 describe("agent request bodies", () => {
   it("builds create session params with id, stream, and context value", () => {
-    expect(buildCreateSessionBody("session-1", "run-1", "Create a workflow", "development")).toEqual({
+    expect(
+      buildCreateSessionBody("session-1", "run-1", "Create a workflow", "development"),
+    ).toEqual({
       id: "session-1",
       run_id: "run-1",
       prompt: "Create a workflow",
@@ -136,7 +137,10 @@ describe("startAgentRun", () => {
   });
 
   it("posts follow-up runs to the session runs endpoint", async () => {
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(ndjsonResponse([JSON.stringify({ type: "runEnd" })])));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(ndjsonResponse([JSON.stringify({ type: "runEnd" })])),
+    );
 
     const existingSession = "550e8400-e29b-41d4-a716-446655440000";
 
@@ -332,10 +336,12 @@ describe("startAgentRun", () => {
     const cancel = vi.fn().mockResolvedValue(undefined);
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
+        controller.enqueue(new TextEncoder().encode(`${JSON.stringify({ type: "runEnd" })}\n`));
         controller.enqueue(
-          new TextEncoder().encode(`${JSON.stringify({ type: "runEnd" })}\n`),
+          new TextEncoder().encode(
+            `${JSON.stringify({ type: "textContent", value: { type: "complete", value: "late" } })}\n`,
+          ),
         );
-        controller.enqueue(new TextEncoder().encode(`${JSON.stringify({ type: "textContent", value: { type: "complete", value: "late" } })}\n`));
       },
       cancel,
     });
@@ -414,10 +420,7 @@ describe("startAgentRun", () => {
     expect(Result.isOk(result)).toBe(true);
     if (Result.isError(result)) return;
     expect(result.value.status).toBe("running");
-    expect(fetchMock).not.toHaveBeenCalledWith(
-      expect.stringMatching(/\/stop$/),
-      expect.anything(),
-    );
+    expect(fetchMock).not.toHaveBeenCalledWith(expect.stringMatching(/\/stop$/), expect.anything());
   });
 
   it("sanitizes HTML error bodies from non-2xx responses", async () => {
