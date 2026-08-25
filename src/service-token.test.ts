@@ -6,6 +6,7 @@ import {
   buildServiceTokenProps,
   hashServiceToken,
   isKnockServiceToken,
+  parseWhoamiIdentity,
   resolveKnockServiceToken,
 } from "./service-token";
 
@@ -30,6 +31,14 @@ function testEnv(kv = memoryKv()) {
   };
 }
 
+const whoamiBody = {
+  type: "service_token",
+  account_slug: "acme",
+  account_name: "Acme",
+  service_token_name: "CI",
+  account_features: {},
+};
+
 describe("isKnockServiceToken", () => {
   it("accepts the knock_st_ prefix", () => {
     expect(isKnockServiceToken("knock_st_abc")).toBe(true);
@@ -42,6 +51,24 @@ describe("isKnockServiceToken", () => {
   });
 });
 
+describe("parseWhoamiIdentity", () => {
+  it("reads account identity from a service-token whoami payload", () => {
+    expect(parseWhoamiIdentity(whoamiBody)).toEqual({
+      accountSlug: "acme",
+      accountName: "Acme",
+      serviceTokenName: "CI",
+    });
+  });
+
+  it("rejects oauth_context payloads", () => {
+    expect(parseWhoamiIdentity({ ...whoamiBody, type: "oauth_context" })).toBeNull();
+  });
+
+  it("rejects payloads without an account slug", () => {
+    expect(parseWhoamiIdentity({ type: "service_token", account_name: "Acme" })).toBeNull();
+  });
+});
+
 describe("buildServiceTokenProps", () => {
   it("uses default tool groups and a sentinel client id", () => {
     expect(buildServiceTokenProps("knock_st_secret")).toEqual({
@@ -50,6 +77,19 @@ describe("buildServiceTokenProps", () => {
       clientId: SERVICE_TOKEN_CLIENT_ID,
       selectedGroups: defaultSelectedGroupKeys(),
       mapiAccessMode: "read_write",
+    });
+  });
+
+  it("includes whoami account identity when provided", () => {
+    expect(
+      buildServiceTokenProps("knock_st_secret", {
+        accountSlug: "acme",
+        accountName: "Acme",
+        serviceTokenName: "CI",
+      }),
+    ).toMatchObject({
+      accountSlug: "acme",
+      accountName: "Acme",
     });
   });
 });
@@ -75,7 +115,7 @@ describe("resolveKnockServiceToken", () => {
 
     await expect(resolveKnockServiceToken("knock_st_revoked", env)).resolves.toBeNull();
     expect(fetchMock).toHaveBeenCalledWith(
-      "https://control.knock.app/v1/environments",
+      "https://control.knock.app/v1/whoami",
       expect.objectContaining({
         method: "GET",
         headers: expect.objectContaining({
@@ -86,27 +126,49 @@ describe("resolveKnockServiceToken", () => {
     );
   });
 
-  it("returns service-token props when Management API accepts the token", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("[]", { status: 200 }));
+  it("returns service-token props when whoami accepts the token", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(whoamiBody), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const { env, kv } = testEnv();
 
     await expect(resolveKnockServiceToken("knock_st_valid", env)).resolves.toEqual({
-      props: buildServiceTokenProps("knock_st_valid"),
+      props: buildServiceTokenProps("knock_st_valid", {
+        accountSlug: "acme",
+        accountName: "Acme",
+        serviceTokenName: "CI",
+      }),
     });
 
-    const cacheKey = `service-token-identity:v1:${await hashServiceToken("knock_st_valid")}`;
-    expect(kv.store.get(cacheKey)).toBe(JSON.stringify({ valid: true }));
+    const cacheKey = `service-token-identity:v2:${await hashServiceToken("knock_st_valid")}`;
+    expect(JSON.parse(kv.store.get(cacheKey) ?? "null")).toEqual({
+      accountSlug: "acme",
+      accountName: "Acme",
+      serviceTokenName: "CI",
+    });
   });
 
   it("reuses the identity cache and does not re-probe Management API", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response("[]", { status: 200 }));
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(whoamiBody), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
     vi.stubGlobal("fetch", fetchMock);
     const { env } = testEnv();
 
     await resolveKnockServiceToken("knock_st_cached", env);
     await expect(resolveKnockServiceToken("knock_st_cached", env)).resolves.toEqual({
-      props: buildServiceTokenProps("knock_st_cached"),
+      props: buildServiceTokenProps("knock_st_cached", {
+        accountSlug: "acme",
+        accountName: "Acme",
+        serviceTokenName: "CI",
+      }),
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

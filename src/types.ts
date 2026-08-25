@@ -23,4 +23,8 @@ export interface Props extends Record<string, unknown> {
    * service-token sessions. Never persist this in `knock-token:` KV.
    */
   serviceToken?: string;
+  /** Account slug from Management API `/v1/whoami` (service-token sessions). */
+  accountSlug?: string;
+  /** Account display name from Management API `/v1/whoami` (service-token sessions). */
+  accountName?: string;
 }

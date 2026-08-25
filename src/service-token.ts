@@ -11,29 +11,12 @@ export const KNOCK_SERVICE_TOKEN_PREFIX = "knock_st_";
 export const SERVICE_TOKEN_CLIENT_ID = "knock-mcp-service-token";
 
 const IDENTITY_CACHE_TTL_SECONDS = 15 * 60;
-const IDENTITY_CACHE_KEY_PREFIX = "service-token-identity:v1:";
+const IDENTITY_CACHE_KEY_PREFIX = "service-token-identity:v2:";
 
-interface CachedIdentity {
-  valid: true;
-}
-
-export function isKnockServiceToken(token: string): boolean {
-  return token.startsWith(KNOCK_SERVICE_TOKEN_PREFIX);
-}
-
-export function buildServiceTokenProps(serviceToken: string): Props {
-  return {
-    authKind: "service_token",
-    serviceToken,
-    clientId: SERVICE_TOKEN_CLIENT_ID,
-    selectedGroups: defaultSelectedGroupKeys(),
-    mapiAccessMode: "read_write",
-  };
-}
-
-export async function hashServiceToken(token: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+export interface ServiceTokenIdentity {
+  accountSlug: string;
+  accountName: string;
+  serviceTokenName?: string | null;
 }
 
 type ServiceTokenKv = {
@@ -46,24 +29,68 @@ type ServiceTokenEnv = {
   KNOCK_CONTROL_URL: string;
 };
 
+export function isKnockServiceToken(token: string): boolean {
+  return token.startsWith(KNOCK_SERVICE_TOKEN_PREFIX);
+}
+
+export function buildServiceTokenProps(
+  serviceToken: string,
+  identity?: ServiceTokenIdentity,
+): Props {
+  return {
+    authKind: "service_token",
+    serviceToken,
+    clientId: SERVICE_TOKEN_CLIENT_ID,
+    selectedGroups: defaultSelectedGroupKeys(),
+    mapiAccessMode: "read_write",
+    ...(identity ? { accountSlug: identity.accountSlug, accountName: identity.accountName } : {}),
+  };
+}
+
+export async function hashServiceToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 function identityCacheKey(tokenHash: string): string {
   return `${IDENTITY_CACHE_KEY_PREFIX}${tokenHash}`;
 }
 
-async function readCachedIdentity(kv: ServiceTokenKv, tokenHash: string): Promise<boolean> {
+export function parseWhoamiIdentity(body: unknown): ServiceTokenIdentity | null {
+  if (!body || typeof body !== "object") return null;
+  const record = body as Record<string, unknown>;
+  if (typeof record.account_slug !== "string" || !record.account_slug) return null;
+  if (record.type === "oauth_context") return null;
+  return {
+    accountSlug: record.account_slug,
+    accountName: typeof record.account_name === "string" ? record.account_name : record.account_slug,
+    serviceTokenName:
+      typeof record.service_token_name === "string" ? record.service_token_name : null,
+  };
+}
+
+async function readCachedIdentity(
+  kv: ServiceTokenKv,
+  tokenHash: string,
+): Promise<ServiceTokenIdentity | null> {
   try {
     const raw = await kv.get(identityCacheKey(tokenHash));
-    if (!raw) return false;
-    const parsed = JSON.parse(raw) as CachedIdentity;
-    return parsed.valid === true;
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ServiceTokenIdentity;
+    if (typeof parsed.accountSlug !== "string" || !parsed.accountSlug) return null;
+    return parsed;
   } catch {
-    return false;
+    return null;
   }
 }
 
-async function writeCachedIdentity(kv: ServiceTokenKv, tokenHash: string): Promise<void> {
+async function writeCachedIdentity(
+  kv: ServiceTokenKv,
+  tokenHash: string,
+  identity: ServiceTokenIdentity,
+): Promise<void> {
   try {
-    await kv.put(identityCacheKey(tokenHash), JSON.stringify({ valid: true } satisfies CachedIdentity), {
+    await kv.put(identityCacheKey(tokenHash), JSON.stringify(identity), {
       expirationTtl: IDENTITY_CACHE_TTL_SECONDS,
     });
   } catch (error) {
@@ -72,19 +99,18 @@ async function writeCachedIdentity(kv: ServiceTokenKv, tokenHash: string): Promi
 }
 
 /**
- * Validates a Knock service token against the Management API.
+ * Validates a Knock service token via Management API `/v1/whoami`.
  * Caches identity (not the token) so repeat MCP requests skip the probe.
  */
 export async function validateKnockServiceToken(
   token: string,
   env: ServiceTokenEnv,
-): Promise<boolean> {
+): Promise<ServiceTokenIdentity | null> {
   const tokenHash = await hashServiceToken(token);
-  if (await readCachedIdentity(env.OAUTH_KV, tokenHash)) {
-    return true;
-  }
+  const cached = await readCachedIdentity(env.OAUTH_KV, tokenHash);
+  if (cached) return cached;
 
-  const url = `${getKnockControlBaseUrl(env)}/v1/environments`;
+  const url = `${getKnockControlBaseUrl(env)}/v1/whoami`;
   const response = await fetch(url, {
     method: "GET",
     headers: {
@@ -98,11 +124,21 @@ export async function validateKnockServiceToken(
   }
 
   if (!response.ok) {
-    return false;
+    return null;
   }
 
-  await writeCachedIdentity(env.OAUTH_KV, tokenHash);
-  return true;
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch {
+    return null;
+  }
+
+  const identity = parseWhoamiIdentity(body);
+  if (!identity) return null;
+
+  await writeCachedIdentity(env.OAUTH_KV, tokenHash, identity);
+  return identity;
 }
 
 /**
@@ -117,10 +153,10 @@ export async function resolveKnockServiceToken(
     return null;
   }
 
-  const valid = await validateKnockServiceToken(token, env);
-  if (!valid) {
+  const identity = await validateKnockServiceToken(token, env);
+  if (!identity) {
     return null;
   }
 
-  return { props: buildServiceTokenProps(token) };
+  return { props: buildServiceTokenProps(token, identity) };
 }

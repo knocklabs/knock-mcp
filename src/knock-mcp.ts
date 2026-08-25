@@ -73,9 +73,10 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
       throw new Error("MCP session missing clientId; please re-authenticate.");
     }
 
-    Sentry.setUser({ id: props.userId, email: props.email });
+    Sentry.setUser({ id: props.userId ?? props.accountSlug, email: props.email });
     Sentry.setTag("knock.client_id", props.clientId);
     Sentry.setTag("knock.auth_kind", props.authKind ?? "oauth");
+    if (props.accountSlug) Sentry.setTag("knock.account_slug", props.accountSlug);
 
     const getClient = async () => {
       const accessToken = await resolveKnockAccessToken(this.env, props);
