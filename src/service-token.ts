@@ -1,7 +1,7 @@
 import type { ResolveExternalTokenResult } from "@cloudflare/workers-oauth-provider";
 
 import { getKnockControlBaseUrl } from "./knock-control-url";
-import { defaultSelectedGroupKeys } from "./tool-groups";
+import { allToolGroupKeys } from "./tool-groups";
 import type { Props } from "./types";
 
 /** Knock Management API service tokens (`https://docs.knock.app/developer-tools/service-tokens`). */
@@ -33,6 +33,11 @@ export function isKnockServiceToken(token: string): boolean {
   return token.startsWith(KNOCK_SERVICE_TOKEN_PREFIX);
 }
 
+/**
+ * Build MCP session props for a validated service token.
+ * Service-token sessions enable every tool group with read/write Management
+ * API access; the token's own scopes are the real authorization boundary.
+ */
 export function buildServiceTokenProps(
   serviceToken: string,
   identity?: ServiceTokenIdentity,
@@ -41,7 +46,7 @@ export function buildServiceTokenProps(
     authKind: "service_token",
     serviceToken,
     clientId: SERVICE_TOKEN_CLIENT_ID,
-    selectedGroups: defaultSelectedGroupKeys(),
+    selectedGroups: allToolGroupKeys(),
     mapiAccessMode: "read_write",
     ...(identity ? { accountSlug: identity.accountSlug, accountName: identity.accountName } : {}),
   };

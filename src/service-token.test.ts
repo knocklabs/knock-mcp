@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { defaultSelectedGroupKeys } from "./tool-groups";
+import { allToolGroupKeys } from "./tool-groups";
 import {
   SERVICE_TOKEN_CLIENT_ID,
   buildServiceTokenProps,
@@ -70,12 +70,12 @@ describe("parseWhoamiIdentity", () => {
 });
 
 describe("buildServiceTokenProps", () => {
-  it("uses default tool groups and a sentinel client id", () => {
+  it("enables every tool group with read/write Management API access", () => {
     expect(buildServiceTokenProps("knock_st_secret")).toEqual({
       authKind: "service_token",
       serviceToken: "knock_st_secret",
       clientId: SERVICE_TOKEN_CLIENT_ID,
-      selectedGroups: defaultSelectedGroupKeys(),
+      selectedGroups: allToolGroupKeys(),
       mapiAccessMode: "read_write",
     });
   });

@@ -76,7 +76,7 @@ This is token passthrough: the same Management API token authenticates the MCP s
 }
 ```
 
-Service-token sessions skip the consent screen and get the default tool groups (Management API code mode with read/write, plus the Knock agent). Least privilege comes from the token's Management API scopes, not MCP checkboxes.
+Service-token sessions skip the consent screen and enable **all** MCP tool groups (Management API code mode with read/write, the Knock agent, resource management, commits, debug, data management, and documentation). Least privilege comes from the token's Management API scopes, not MCP checkboxes. OAuth consent still uses the default subset unless the user explicitly selects more.
 
 ## Self-Hosting & Local Development
 
