@@ -46,7 +46,8 @@ const handler = {
           "none",
         ],
         revocation_endpoint: `${origin}/token`,
-        code_challenge_methods_supported: ["plain", "S256"],
+        code_challenge_methods_supported: ["S256"],
+        authorization_response_iss_parameter_supported: true,
         client_id_metadata_document_supported: true,
       };
 

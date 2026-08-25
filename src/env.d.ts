@@ -6,8 +6,3 @@
  * - `LOADER` is the `worker_loaders` binding for @cloudflare/codemode (see `wrangler.jsonc`).
  * - `KNOCK_CONTROL_URL` is the Management API base URL (see `wrangler.jsonc` vars).
  */
-interface Env {
-  DEV_ORIGIN: string;
-  COOKIE_ENCRYPTION_KEY: string;
-  SENTRY_DSN?: string;
-}
