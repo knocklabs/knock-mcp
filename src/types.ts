@@ -3,8 +3,11 @@ import type { KnockClientApplicationInfo } from "./knock-client-user-agent";
 /** OAuth / tool-selection props stored on the MCP Durable Object (see workers-oauth-provider). */
 export type MapiAccessMode = "read" | "read_write";
 
+export type AuthKind = "oauth" | "service_token";
+
 export interface Props extends Record<string, unknown> {
-  tokenId: string;
+  /** KV pointer for AuthKit tokens. Absent on service-token sessions. */
+  tokenId?: string;
   clientId: string;
   userId?: string;
   email?: string;
@@ -13,4 +16,11 @@ export interface Props extends Record<string, unknown> {
   mapiAccessMode?: MapiAccessMode;
   /** OAuth MCP client (e.g. Cursor, Claude Desktop) for partner attribution on outbound API calls. */
   clientApplication?: KnockClientApplicationInfo;
+  /** How this MCP session authenticated. Omitted on legacy OAuth sessions. */
+  authKind?: AuthKind;
+  /**
+   * Knock Management API service token (`knock_st_…`), set per request for
+   * service-token sessions. Never persist this in `knock-token:` KV.
+   */
+  serviceToken?: string;
 }

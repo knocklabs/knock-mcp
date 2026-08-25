@@ -55,7 +55,28 @@ When connecting, you choose exactly which tool groups to enable. **By default**,
 
 ## Authentication
 
-The MCP server uses **OAuth 2.1 + PKCE** via Knock's AuthKit. When you first connect, you'll be directed to authorize the connection and select which capabilities to grant. Your credentials are never stored by the MCP server — it exchanges tokens with Knock's API on your behalf.
+Interactive clients should use **OAuth 2.1 + PKCE** via Knock's AuthKit. When you first connect, you'll be directed to authorize the connection and select which capabilities to grant. The MCP server exchanges tokens with Knock's API on your behalf.
+
+### Service token (CI / headless)
+
+For environments that cannot complete a browser OAuth flow (CI, unattended agents), you can pass a Knock [service token](https://docs.knock.app/developer-tools/service-tokens) (`knock_st_…`) as a bearer credential. MCP clients that set `Authorization` skip OAuth.
+
+This is token passthrough: the same Management API token authenticates the MCP session and outbound Knock calls. It is a CI/headless compatibility path, not MCP-conformant OAuth. Prefer OAuth for interactive use. A service token is a high-privilege account credential — treat it like a secret, and use a scoped token when you can.
+
+```json
+{
+  "mcpServers": {
+    "knock": {
+      "url": "https://mcp.knock.app/mcp",
+      "headers": {
+        "Authorization": "Bearer ${KNOCK_SERVICE_TOKEN}"
+      }
+    }
+  }
+}
+```
+
+Service-token sessions skip the consent screen and get the default tool groups (Management API code mode with read/write, plus the Knock agent). Least privilege comes from the token's Management API scopes, not MCP checkboxes.
 
 ## Self-Hosting & Local Development
 

@@ -18,7 +18,7 @@ import {
   resolveGroupsToCategories,
 } from "./tool-groups";
 import { KNOCK_MCP_SERVER_VERSION } from "./mcp-server-version";
-import { getOrRefreshKnockToken } from "./token-store";
+import { resolveKnockAccessToken } from "./token-store";
 
 type ToolkitPermissionTier = {
   read?: string[];
@@ -63,8 +63,8 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
 
   async init() {
     const props = this.props;
-    if (!props?.tokenId) {
-      throw new Error("MCP session missing tokenId; please re-authenticate.");
+    if (!props?.serviceToken && !props?.tokenId) {
+      throw new Error("MCP session missing Knock credentials; please re-authenticate.");
     }
     if (!props.clientId) {
       // Sessions created before clientId was added to Props (pre-2026-03-24) land here.
@@ -75,9 +75,10 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
 
     Sentry.setUser({ id: props.userId, email: props.email });
     Sentry.setTag("knock.client_id", props.clientId);
+    Sentry.setTag("knock.auth_kind", props.authKind ?? "oauth");
 
     const getClient = async () => {
-      const accessToken = await getOrRefreshKnockToken(this.env, props.tokenId);
+      const accessToken = await resolveKnockAccessToken(this.env, props);
       const config = { serviceToken: accessToken, clientId: props.clientId };
       return {
         knockClient: createKnockClient({

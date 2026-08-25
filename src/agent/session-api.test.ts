@@ -13,6 +13,7 @@ import {
 
 vi.mock("../token-store", () => ({
   getOrRefreshKnockToken: vi.fn().mockResolvedValue("test-token"),
+  resolveKnockAccessToken: vi.fn().mockResolvedValue("test-token"),
 }));
 
 const baseProps: Props = {

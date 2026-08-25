@@ -2,7 +2,7 @@ import { Result } from "better-result";
 
 import type { Props } from "../types";
 import { getKnockControlBaseUrl } from "../knock-control-url";
-import { getOrRefreshKnockToken } from "../token-store";
+import { resolveKnockAccessToken } from "../token-store";
 import {
   AgentApiError,
   AgentStreamError,
@@ -75,7 +75,7 @@ export function buildFollowUpRunBody(
 }
 
 export async function resolveAgentAuthHeaders(env: Env, props: Props): Promise<Record<string, string>> {
-  const token = await getOrRefreshKnockToken(env, props.tokenId);
+  const token = await resolveKnockAccessToken(env, props);
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",

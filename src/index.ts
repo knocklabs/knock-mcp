@@ -5,6 +5,7 @@ import * as Sentry from "@sentry/cloudflare";
 import { AuthHandler } from "./auth-handler";
 import { KnockMCP as KnockMCPBase } from "./knock-mcp";
 import { sentryConfig } from "./sentry";
+import { resolveKnockServiceToken } from "./service-token";
 
 export const KnockMCP = Sentry.instrumentDurableObjectWithSentry(
   sentryConfig,
@@ -27,6 +28,7 @@ const provider = new OAuthProvider({
   // RFC 9728: pins grants and access-token audiences to this exact
   // resource, and controls /.well-known/oauth-protected-resource.
   resourceMetadata: { resource: `${origin}/mcp` },
+  resolveExternalToken: async ({ token, env }) => resolveKnockServiceToken(token, env),
   // Surface errors the provider keeps generic on the wire, e.g. CIMD
   // metadata fetch failures at the token endpoint (internal.category
   // "client-id-metadata-document").
