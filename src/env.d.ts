@@ -5,4 +5,20 @@
  * - `DEV_ORIGIN` is local-only; set in `.dev.vars` when using `wrangler dev`.
  * - `LOADER` is the `worker_loaders` binding for @cloudflare/codemode (see `wrangler.jsonc`).
  * - `KNOCK_CONTROL_URL` is the Management API base URL (see `wrangler.jsonc` vars).
+ *
+ * Declare these on both `Env` and `Cloudflare.Env`. CI `wrangler types` does not
+ * see `.dev.vars` / secrets, and the oauth provider types `fetch` as `Cloudflare.Env`.
  */
+interface Env {
+  DEV_ORIGIN: string;
+  COOKIE_ENCRYPTION_KEY: string;
+  SENTRY_DSN: string;
+}
+
+declare namespace Cloudflare {
+  interface Env {
+    DEV_ORIGIN: string;
+    COOKIE_ENCRYPTION_KEY: string;
+    SENTRY_DSN: string;
+  }
+}
