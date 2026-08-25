@@ -61,6 +61,10 @@ describe("sessionAuthKind", () => {
     expect(sessionAuthKind({})).toBe("oauth");
     expect(sessionAuthKind({ authKind: "service_token" })).toBe("service_token");
   });
+
+  it("derives service_token from the credential even when authKind is omitted", () => {
+    expect(sessionAuthKind({ serviceToken: "knock_st_direct" })).toBe("service_token");
+  });
 });
 
 describe("buildOauthProps", () => {

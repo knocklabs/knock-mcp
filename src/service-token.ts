@@ -41,8 +41,8 @@ function identityCacheKey(tokenHash: string): string {
 export function parseWhoamiIdentity(body: unknown): ServiceTokenIdentity | null {
   if (!body || typeof body !== "object") return null;
   const record = body as Record<string, unknown>;
+  if (record.type !== "service_token") return null;
   if (typeof record.account_slug !== "string" || !record.account_slug) return null;
-  if (record.type === "oauth_context") return null;
   return {
     accountSlug: record.account_slug,
     accountName:
@@ -102,12 +102,14 @@ export async function validateKnockServiceToken(
     },
   });
 
-  if (response.status >= 500) {
-    throw new Error(`Knock service token validation failed (${response.status})`);
-  }
-
-  if (!response.ok) {
+  // Only auth failures should look like "not a service token" (OAuth 401).
+  // 429 / 5xx / other errors must throw so headless clients retry instead of
+  // starting a browser consent flow.
+  if (response.status === 401 || response.status === 403) {
     return null;
+  }
+  if (!response.ok) {
+    throw new Error(`Knock service token validation failed (${response.status})`);
   }
 
   let body: unknown;

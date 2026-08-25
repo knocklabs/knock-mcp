@@ -45,7 +45,7 @@ export function requireSessionAuth(props: SessionCredentialFields | null | undef
 }
 
 export function sessionAuthKind(props: SessionCredentialFields): AuthKind {
-  return props.authKind ?? "oauth";
+  return sessionAuthFromProps(props)?.kind ?? props.authKind ?? "oauth";
 }
 
 /** Build MCP session props after AuthKit consent. */

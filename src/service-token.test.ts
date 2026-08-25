@@ -63,6 +63,10 @@ describe("parseWhoamiIdentity", () => {
     expect(parseWhoamiIdentity({ ...whoamiBody, type: "oauth_context" })).toBeNull();
   });
 
+  it("rejects payloads without type service_token", () => {
+    expect(parseWhoamiIdentity({ account_slug: "acme", account_name: "Acme" })).toBeNull();
+  });
+
   it("rejects payloads without an account slug", () => {
     expect(parseWhoamiIdentity({ type: "service_token", account_name: "Acme" })).toBeNull();
   });
@@ -153,6 +157,15 @@ describe("resolveKnockServiceToken", () => {
 
     await expect(resolveKnockServiceToken("knock_st_valid", env)).rejects.toThrow(
       "Knock service token validation failed (503)",
+    );
+  });
+
+  it("throws on rate limits so clients retry instead of starting OAuth", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("slow down", { status: 429 })));
+    const { env } = testEnv();
+
+    await expect(resolveKnockServiceToken("knock_st_valid", env)).rejects.toThrow(
+      "Knock service token validation failed (429)",
     );
   });
 });
