@@ -6,15 +6,9 @@
  * - `LOADER` is the `worker_loaders` binding for @cloudflare/codemode (see `wrangler.jsonc`).
  * - `KNOCK_CONTROL_URL` is the Management API base URL (see `wrangler.jsonc` vars).
  *
- * Declare these on both `Env` and `Cloudflare.Env`. CI `wrangler types` does not
- * see `.dev.vars` / secrets, and the oauth provider types `fetch` as `Cloudflare.Env`.
+ * CI `wrangler types` omits `.dev.vars` / secrets. The oauth provider types `fetch`
+ * as `Cloudflare.Env`, so declare the missing bindings there and point `Env` at it.
  */
-interface Env {
-  DEV_ORIGIN: string;
-  COOKIE_ENCRYPTION_KEY: string;
-  SENTRY_DSN: string;
-}
-
 declare namespace Cloudflare {
   interface Env {
     DEV_ORIGIN: string;
@@ -22,3 +16,5 @@ declare namespace Cloudflare {
     SENTRY_DSN: string;
   }
 }
+
+interface Env extends Cloudflare.Env {}
