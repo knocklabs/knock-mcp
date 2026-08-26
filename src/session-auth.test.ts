@@ -4,15 +4,12 @@ import {
   MISSING_SESSION_CREDENTIALS,
   applySessionSentryContext,
   buildOauthProps,
-  buildServiceTokenProps,
   requireSessionAuth,
   resolveKnockAccessToken,
   sessionAuthFromProps,
-  sessionAuthKind,
 } from "./session-auth";
+import { SERVICE_TOKEN_CLIENT_ID } from "./service-token";
 import { storeKnockTokens } from "./token-store";
-import { allToolGroupKeys } from "./tool-groups";
-import { SERVICE_TOKEN_CLIENT_ID } from "./types";
 
 vi.mock("@sentry/cloudflare", () => ({
   setUser: vi.fn(),
@@ -56,17 +53,6 @@ describe("requireSessionAuth", () => {
   });
 });
 
-describe("sessionAuthKind", () => {
-  it("defaults omitted authKind to oauth", () => {
-    expect(sessionAuthKind({})).toBe("oauth");
-    expect(sessionAuthKind({ authKind: "service_token" })).toBe("service_token");
-  });
-
-  it("derives service_token from the credential even when authKind is omitted", () => {
-    expect(sessionAuthKind({ serviceToken: "knock_st_direct" })).toBe("service_token");
-  });
-});
-
 describe("buildOauthProps", () => {
   it("omits optional consent fields when they are unset", () => {
     expect(
@@ -78,34 +64,7 @@ describe("buildOauthProps", () => {
     ).toEqual({
       tokenId: "oauth-1",
       clientId: "client-1",
-      userId: undefined,
-      email: undefined,
       selectedGroups: ["documentation"],
-    });
-  });
-});
-
-describe("buildServiceTokenProps", () => {
-  it("enables every tool group with read/write Management API access", () => {
-    expect(buildServiceTokenProps("knock_st_secret")).toEqual({
-      authKind: "service_token",
-      serviceToken: "knock_st_secret",
-      clientId: SERVICE_TOKEN_CLIENT_ID,
-      selectedGroups: allToolGroupKeys(),
-      mapiAccessMode: "read_write",
-    });
-  });
-
-  it("includes whoami account identity when provided", () => {
-    expect(
-      buildServiceTokenProps("knock_st_secret", {
-        accountSlug: "acme",
-        accountName: "Acme",
-        serviceTokenName: "CI",
-      }),
-    ).toMatchObject({
-      accountSlug: "acme",
-      accountName: "Acme",
     });
   });
 });
@@ -171,10 +130,9 @@ describe("applySessionSentryContext", () => {
     expect(Sentry.setTag).toHaveBeenCalledWith("knock.auth_kind", "oauth");
   });
 
-  it("tags service-token sessions with account identity", async () => {
+  it("tags service-token sessions from the credential, not persisted authKind", async () => {
     const Sentry = await import("@sentry/cloudflare");
     applySessionSentryContext({
-      authKind: "service_token",
       serviceToken: "knock_st_secret",
       clientId: SERVICE_TOKEN_CLIENT_ID,
       accountSlug: "acme",

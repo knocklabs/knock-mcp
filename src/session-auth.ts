@@ -1,15 +1,7 @@
 import * as Sentry from "@sentry/cloudflare";
 
 import { getOrRefreshKnockToken } from "./token-store";
-import { allToolGroupKeys } from "./tool-groups";
-import {
-  SERVICE_TOKEN_CLIENT_ID,
-  type AuthKind,
-  type KnockClientApplicationInfo,
-  type MapiAccessMode,
-  type Props,
-  type ServiceTokenIdentity,
-} from "./types";
+import type { KnockClientApplicationInfo, MapiAccessMode, Props } from "./types";
 
 export const MISSING_SESSION_CREDENTIALS =
   "MCP session missing Knock credentials; please re-authenticate.";
@@ -22,7 +14,7 @@ export type SessionAuth =
   | { kind: "oauth"; tokenId: string }
   | { kind: "service_token"; serviceToken: string };
 
-export type SessionCredentialFields = Pick<Props, "serviceToken" | "tokenId" | "authKind">;
+export type SessionCredentialFields = Pick<Props, "serviceToken" | "tokenId">;
 
 export function sessionAuthFromProps(
   props: SessionCredentialFields | null | undefined,
@@ -44,10 +36,6 @@ export function requireSessionAuth(props: SessionCredentialFields | null | undef
   return auth;
 }
 
-export function sessionAuthKind(props: SessionCredentialFields): AuthKind {
-  return sessionAuthFromProps(props)?.kind ?? props.authKind ?? "oauth";
-}
-
 /** Build MCP session props after AuthKit consent. */
 export function buildOauthProps(input: {
   tokenId: string;
@@ -61,30 +49,11 @@ export function buildOauthProps(input: {
   return {
     tokenId: input.tokenId,
     clientId: input.clientId,
-    userId: input.userId,
-    email: input.email,
     selectedGroups: input.selectedGroups,
+    ...(input.userId !== undefined ? { userId: input.userId } : {}),
+    ...(input.email !== undefined ? { email: input.email } : {}),
     ...(input.mapiAccessMode !== undefined ? { mapiAccessMode: input.mapiAccessMode } : {}),
     ...(input.clientApplication ? { clientApplication: input.clientApplication } : {}),
-  };
-}
-
-/**
- * Build MCP session props for a validated service token.
- * Service-token sessions enable every tool group with read/write Management
- * API access; the token's own scopes are the real authorization boundary.
- */
-export function buildServiceTokenProps(
-  serviceToken: string,
-  identity?: ServiceTokenIdentity,
-): Props {
-  return {
-    authKind: "service_token",
-    serviceToken,
-    clientId: SERVICE_TOKEN_CLIENT_ID,
-    selectedGroups: allToolGroupKeys(),
-    mapiAccessMode: "read_write",
-    ...(identity ? { accountSlug: identity.accountSlug, accountName: identity.accountName } : {}),
   };
 }
 
@@ -103,6 +72,6 @@ export async function resolveKnockAccessToken(
 export function applySessionSentryContext(props: Props): void {
   Sentry.setUser({ id: props.userId ?? props.accountSlug, email: props.email });
   Sentry.setTag("knock.client_id", props.clientId);
-  Sentry.setTag("knock.auth_kind", sessionAuthKind(props));
+  Sentry.setTag("knock.auth_kind", sessionAuthFromProps(props)?.kind ?? "oauth");
   if (props.accountSlug) Sentry.setTag("knock.account_slug", props.accountSlug);
 }

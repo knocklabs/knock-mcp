@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { sha256Hex } from "./sha256";
 import {
   SERVICE_TOKEN_CLIENT_ID,
   buildServiceTokenProps,
-  hashServiceToken,
   isKnockServiceToken,
   parseWhoamiIdentity,
   resolveKnockServiceToken,
 } from "./service-token";
+import { allToolGroupKeys } from "./tool-groups";
 
 function memoryKv() {
   const store = new Map<string, string>();
@@ -55,7 +56,6 @@ describe("parseWhoamiIdentity", () => {
     expect(parseWhoamiIdentity(whoamiBody)).toEqual({
       accountSlug: "acme",
       accountName: "Acme",
-      serviceTokenName: "CI",
     });
   });
 
@@ -69,6 +69,30 @@ describe("parseWhoamiIdentity", () => {
 
   it("rejects payloads without an account slug", () => {
     expect(parseWhoamiIdentity({ type: "service_token", account_name: "Acme" })).toBeNull();
+  });
+});
+
+describe("buildServiceTokenProps", () => {
+  it("enables every tool group with read/write Management API access", () => {
+    expect(buildServiceTokenProps("knock_st_secret")).toEqual({
+      authKind: "service_token",
+      serviceToken: "knock_st_secret",
+      clientId: SERVICE_TOKEN_CLIENT_ID,
+      selectedGroups: allToolGroupKeys(),
+      mapiAccessMode: "read_write",
+    });
+  });
+
+  it("includes whoami account identity when provided", () => {
+    expect(
+      buildServiceTokenProps("knock_st_secret", {
+        accountSlug: "acme",
+        accountName: "Acme",
+      }),
+    ).toMatchObject({
+      accountSlug: "acme",
+      accountName: "Acme",
+    });
   });
 });
 
@@ -118,15 +142,13 @@ describe("resolveKnockServiceToken", () => {
       props: buildServiceTokenProps("knock_st_valid", {
         accountSlug: "acme",
         accountName: "Acme",
-        serviceTokenName: "CI",
       }),
     });
 
-    const cacheKey = `service-token-identity:v2:${await hashServiceToken("knock_st_valid")}`;
+    const cacheKey = `service-token-identity:v2:${await sha256Hex("knock_st_valid")}`;
     expect(JSON.parse(kv.store.get(cacheKey) ?? "null")).toEqual({
       accountSlug: "acme",
       accountName: "Acme",
-      serviceTokenName: "CI",
     });
   });
 
@@ -145,7 +167,6 @@ describe("resolveKnockServiceToken", () => {
       props: buildServiceTokenProps("knock_st_cached", {
         accountSlug: "acme",
         accountName: "Acme",
-        serviceTokenName: "CI",
       }),
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -166,6 +187,50 @@ describe("resolveKnockServiceToken", () => {
 
     await expect(resolveKnockServiceToken("knock_st_valid", env)).rejects.toThrow(
       "Knock service token validation failed (429)",
+    );
+  });
+
+  it("throws when whoami returns a non-JSON 200 so clients do not start OAuth", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("<html>ok</html>", { status: 200 })),
+    );
+    const { env } = testEnv();
+
+    await expect(resolveKnockServiceToken("knock_st_valid", env)).rejects.toThrow(
+      "Knock service token validation failed (invalid whoami body)",
+    );
+  });
+
+  it("returns null when whoami is an oauth_context payload", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ ...whoamiBody, type: "oauth_context" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    const { env } = testEnv();
+
+    await expect(resolveKnockServiceToken("knock_st_valid", env)).resolves.toBeNull();
+  });
+
+  it("throws when a service_token whoami payload is missing an account slug", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ type: "service_token", account_name: "Acme" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+    const { env } = testEnv();
+
+    await expect(resolveKnockServiceToken("knock_st_valid", env)).rejects.toThrow(
+      "Knock service token validation failed (incomplete whoami identity)",
     );
   });
 });

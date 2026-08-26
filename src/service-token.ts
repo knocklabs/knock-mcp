@@ -1,17 +1,20 @@
 import type { ResolveExternalTokenResult } from "@cloudflare/workers-oauth-provider";
 
 import { getKnockControlBaseUrl } from "./knock-control-url";
-import { buildServiceTokenProps } from "./session-auth";
 import { sha256Hex } from "./sha256";
-import {
-  KNOCK_SERVICE_TOKEN_PREFIX,
-  SERVICE_TOKEN_CLIENT_ID,
-  type ServiceTokenIdentity,
-} from "./types";
+import { allToolGroupKeys } from "./tool-groups";
+import type { Props } from "./types";
 
-export { KNOCK_SERVICE_TOKEN_PREFIX, SERVICE_TOKEN_CLIENT_ID, type ServiceTokenIdentity };
+/** Knock Management API service tokens (`https://docs.knock.app/developer-tools/service-tokens`). */
+export const KNOCK_SERVICE_TOKEN_PREFIX = "knock_st_";
 
-export { buildServiceTokenProps } from "./session-auth";
+/** Sentinel `x-knock-client-id` for service-token MCP sessions (no AuthKit client). */
+export const SERVICE_TOKEN_CLIENT_ID = "knock-mcp-service-token";
+
+export interface ServiceTokenIdentity {
+  accountSlug: string;
+  accountName: string;
+}
 
 const IDENTITY_CACHE_TTL_SECONDS = 15 * 60;
 const IDENTITY_CACHE_KEY_PREFIX = "service-token-identity:v2:";
@@ -30,8 +33,23 @@ export function isKnockServiceToken(token: string): boolean {
   return token.startsWith(KNOCK_SERVICE_TOKEN_PREFIX);
 }
 
-export async function hashServiceToken(token: string): Promise<string> {
-  return sha256Hex(token);
+/**
+ * Build MCP session props for a validated service token.
+ * Service-token sessions enable every tool group with read/write Management
+ * API access; the token's own scopes are the real authorization boundary.
+ */
+export function buildServiceTokenProps(
+  serviceToken: string,
+  identity?: ServiceTokenIdentity,
+): Props {
+  return {
+    authKind: "service_token",
+    serviceToken,
+    clientId: SERVICE_TOKEN_CLIENT_ID,
+    selectedGroups: allToolGroupKeys(),
+    mapiAccessMode: "read_write",
+    ...(identity ? { accountSlug: identity.accountSlug, accountName: identity.accountName } : {}),
+  };
 }
 
 function identityCacheKey(tokenHash: string): string {
@@ -47,8 +65,6 @@ export function parseWhoamiIdentity(body: unknown): ServiceTokenIdentity | null 
     accountSlug: record.account_slug,
     accountName:
       typeof record.account_name === "string" ? record.account_name : record.account_slug,
-    serviceTokenName:
-      typeof record.service_token_name === "string" ? record.service_token_name : null,
   };
 }
 
@@ -59,9 +75,12 @@ async function readCachedIdentity(
   try {
     const raw = await kv.get(identityCacheKey(tokenHash));
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as ServiceTokenIdentity;
+    const parsed = JSON.parse(raw) as Partial<ServiceTokenIdentity>;
     if (typeof parsed.accountSlug !== "string" || !parsed.accountSlug) return null;
-    return parsed;
+    return {
+      accountSlug: parsed.accountSlug,
+      accountName: typeof parsed.accountName === "string" ? parsed.accountName : parsed.accountSlug,
+    };
   } catch {
     return null;
   }
@@ -85,11 +104,11 @@ async function writeCachedIdentity(
  * Validates a Knock service token via Management API `/v1/whoami`.
  * Caches identity (not the token) so repeat MCP requests skip the probe.
  */
-export async function validateKnockServiceToken(
+async function validateKnockServiceToken(
   token: string,
   env: ServiceTokenEnv,
 ): Promise<ServiceTokenIdentity | null> {
-  const tokenHash = await hashServiceToken(token);
+  const tokenHash = await sha256Hex(token);
   const cached = await readCachedIdentity(env.OAUTH_KV, tokenHash);
   if (cached) return cached;
 
@@ -116,11 +135,22 @@ export async function validateKnockServiceToken(
   try {
     body = await response.json();
   } catch {
+    throw new Error("Knock service token validation failed (invalid whoami body)");
+  }
+
+  // Wrong credential class (e.g. oauth_context) is a miss, not an outage.
+  if (
+    !body ||
+    typeof body !== "object" ||
+    (body as Record<string, unknown>).type !== "service_token"
+  ) {
     return null;
   }
 
   const identity = parseWhoamiIdentity(body);
-  if (!identity) return null;
+  if (!identity) {
+    throw new Error("Knock service token validation failed (incomplete whoami identity)");
+  }
 
   await writeCachedIdentity(env.OAUTH_KV, tokenHash, identity);
   return identity;
