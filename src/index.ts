@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import * as Sentry from "@sentry/cloudflare";
 
@@ -10,38 +11,33 @@ export const KnockMCP = Sentry.instrumentDurableObjectWithSentry(
   KnockMCPBase as unknown as new (state: DurableObjectState, env: Env) => KnockMCPBase,
 ) as unknown as typeof KnockMCPBase;
 
-// Constructed lazily so resourceMetadata.resource can use DEV_ORIGIN, which is
-// only available at request time. Cached per isolate.
-let provider: OAuthProvider | undefined;
+// The cloudflare:workers env export is typed Cloudflare.Env, which CI's
+// `wrangler types` generates without .dev.vars-only bindings like DEV_ORIGIN.
+// Cast to our global Env, which src/env.d.ts patches with those bindings.
+const origin = (env as Env).DEV_ORIGIN || "https://mcp.knock.app";
 
-function getProvider(env: Env): OAuthProvider {
-  if (!provider) {
-    const origin = env.DEV_ORIGIN || "https://mcp.knock.app";
-    provider = new OAuthProvider({
-      apiRoute: "/mcp",
-      apiHandler: KnockMCP.serve("/mcp") as any,
-      defaultHandler: AuthHandler as any,
-      authorizeEndpoint: "/authorize",
-      tokenEndpoint: "/token",
-      clientRegistrationEndpoint: "/register",
-      clientIdMetadataDocumentEnabled: true,
-      // RFC 9728: pins grants and access-token audiences to this exact
-      // resource, and controls /.well-known/oauth-protected-resource.
-      resourceMetadata: { resource: `${origin}/mcp` },
-      // Surface errors the provider keeps generic on the wire, e.g. CIMD
-      // metadata fetch failures at the token endpoint (internal.category
-      // "client-id-metadata-document").
-      onError({ code, description, status, internal }) {
-        Sentry.captureMessage(`oauth-provider error: ${code}`, {
-          level: status >= 500 ? "error" : "warning",
-          tags: { code, status, category: internal?.category },
-          extra: { description, internal },
-        });
-      },
+const provider = new OAuthProvider({
+  apiRoute: "/mcp",
+  apiHandler: KnockMCP.serve("/mcp") as any,
+  defaultHandler: AuthHandler as any,
+  authorizeEndpoint: "/authorize",
+  tokenEndpoint: "/token",
+  clientRegistrationEndpoint: "/register",
+  clientIdMetadataDocumentEnabled: true,
+  // RFC 9728: pins grants and access-token audiences to this exact
+  // resource, and controls /.well-known/oauth-protected-resource.
+  resourceMetadata: { resource: `${origin}/mcp` },
+  // Surface errors the provider keeps generic on the wire, e.g. CIMD
+  // metadata fetch failures at the token endpoint (internal.category
+  // "client-id-metadata-document").
+  onError({ code, description, status, internal }) {
+    Sentry.captureMessage(`oauth-provider error: ${code}`, {
+      level: status >= 500 ? "error" : "warning",
+      tags: { code, status, category: internal?.category },
+      extra: { description, internal },
     });
-  }
-  return provider;
-}
+  },
+});
 
 const handler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
@@ -53,12 +49,12 @@ const handler = {
     // metadata with DEV_ORIGIN endpoints local clients can actually reach.
     // Production serves the provider's own metadata.
     if (env.DEV_ORIGIN && url.pathname === "/.well-known/oauth-authorization-server") {
-      const origin = env.DEV_ORIGIN;
+      const devOrigin = env.DEV_ORIGIN;
       const metadata = {
-        issuer: origin,
-        authorization_endpoint: `${origin}/authorize`,
-        token_endpoint: `${origin}/token`,
-        registration_endpoint: `${origin}/register`,
+        issuer: devOrigin,
+        authorization_endpoint: `${devOrigin}/authorize`,
+        token_endpoint: `${devOrigin}/token`,
+        registration_endpoint: `${devOrigin}/register`,
         response_types_supported: ["code"],
         response_modes_supported: ["query"],
         grant_types_supported: ["authorization_code", "refresh_token"],
@@ -67,7 +63,7 @@ const handler = {
           "client_secret_post",
           "none",
         ],
-        revocation_endpoint: `${origin}/token`,
+        revocation_endpoint: `${devOrigin}/token`,
         code_challenge_methods_supported: ["S256"],
         authorization_response_iss_parameter_supported: true,
         client_id_metadata_document_supported: true,
@@ -84,13 +80,12 @@ const handler = {
     // wrangler dev rewrites every request URL to the configured domain
     // (mcp.knock.app). Rewrite it back to DEV_ORIGIN so the OAuth provider
     // uses the correct origin for audience validation, token issuance, etc.
-    const devOrigin = env.DEV_ORIGIN || undefined;
     const providerRequest =
-      devOrigin && url.origin !== devOrigin
-        ? new Request(request.url.replace(url.origin, devOrigin), request)
+      env.DEV_ORIGIN && url.origin !== env.DEV_ORIGIN
+        ? new Request(request.url.replace(url.origin, env.DEV_ORIGIN), request)
         : request;
 
-    return getProvider(env).fetch(providerRequest, env, ctx);
+    return provider.fetch(providerRequest, env, ctx);
   },
 } satisfies ExportedHandler<Env>;
 
