@@ -500,15 +500,10 @@ app.post("/api/authorize-tools", async (c) => {
     return c.json({ redirectTo });
   } catch (error: unknown) {
     console.error("POST /api/authorize-tools error:", error);
-    Sentry.captureException(error, {
-      tags: {
-        route: "POST /api/authorize-tools",
-        ...(error instanceof CimdFetchError
-          ? { category: "client-id-metadata-document" }
-          : {}),
-      },
-    });
     if (error instanceof CimdFetchError) {
+      Sentry.captureException(error, {
+        tags: { route: "POST /api/authorize-tools", category: "client-id-metadata-document" },
+      });
       return c.json(
         {
           error: "Could not verify the connecting client. Please restart the authorization flow.",
@@ -516,6 +511,7 @@ app.post("/api/authorize-tools", async (c) => {
         400,
       );
     }
+    Sentry.captureException(error, { tags: { route: "POST /api/authorize-tools" } });
     const message = error instanceof Error ? error.message : "Unknown error";
     return c.json({ error: `Internal server error: ${message}` }, 500);
   }
