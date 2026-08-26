@@ -49,12 +49,11 @@ const handler = {
     // metadata with DEV_ORIGIN endpoints local clients can actually reach.
     // Production serves the provider's own metadata.
     if (env.DEV_ORIGIN && url.pathname === "/.well-known/oauth-authorization-server") {
-      const devOrigin = env.DEV_ORIGIN;
       const metadata = {
-        issuer: devOrigin,
-        authorization_endpoint: `${devOrigin}/authorize`,
-        token_endpoint: `${devOrigin}/token`,
-        registration_endpoint: `${devOrigin}/register`,
+        issuer: origin,
+        authorization_endpoint: `${origin}/authorize`,
+        token_endpoint: `${origin}/token`,
+        registration_endpoint: `${origin}/register`,
         response_types_supported: ["code"],
         response_modes_supported: ["query"],
         grant_types_supported: ["authorization_code", "refresh_token"],
@@ -63,7 +62,7 @@ const handler = {
           "client_secret_post",
           "none",
         ],
-        revocation_endpoint: `${devOrigin}/token`,
+        revocation_endpoint: `${origin}/token`,
         code_challenge_methods_supported: ["S256"],
         authorization_response_iss_parameter_supported: true,
         client_id_metadata_document_supported: true,
@@ -80,9 +79,10 @@ const handler = {
     // wrangler dev rewrites every request URL to the configured domain
     // (mcp.knock.app). Rewrite it back to DEV_ORIGIN so the OAuth provider
     // uses the correct origin for audience validation, token issuance, etc.
+    const devOrigin = env.DEV_ORIGIN || undefined;
     const providerRequest =
-      env.DEV_ORIGIN && url.origin !== env.DEV_ORIGIN
-        ? new Request(request.url.replace(url.origin, env.DEV_ORIGIN), request)
+      devOrigin && url.origin !== devOrigin
+        ? new Request(request.url.replace(url.origin, devOrigin), request)
         : request;
 
     return provider.fetch(providerRequest, env, ctx);
