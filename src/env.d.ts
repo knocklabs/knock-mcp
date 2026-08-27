@@ -5,6 +5,8 @@
  * - `DEV_ORIGIN` is local-only; set in `.dev.vars` when using `wrangler dev`.
  * - `LOADER` is the `worker_loaders` binding for @cloudflare/codemode (see `wrangler.jsonc`).
  * - `KNOCK_CONTROL_URL` is the Management API base URL (see `wrangler.jsonc` vars).
+ * - `OPENAI_APPS_CHALLENGE_TOKEN` is the public OpenAI Apps domain-verification
+ *   token served at `/.well-known/openai-apps-challenge` (see `wrangler.jsonc` vars).
  * - `SENTRY_DSN` is typed required (not `?`) so `Env` stays assignable to the
  *   generated `Cloudflare.Env`, which workers-oauth-provider 0.10+ types against.
  *   At runtime it may be blank; `sentry.ts` handles that.
@@ -13,4 +15,5 @@ interface Env {
   DEV_ORIGIN: string;
   COOKIE_ENCRYPTION_KEY: string;
   SENTRY_DSN: string;
+  OPENAI_APPS_CHALLENGE_TOKEN: string;
 }

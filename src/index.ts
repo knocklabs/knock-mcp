@@ -4,6 +4,10 @@ import * as Sentry from "@sentry/cloudflare";
 
 import { AuthHandler } from "./auth-handler";
 import { KnockMCP as KnockMCPBase } from "./knock-mcp";
+import {
+  OPENAI_APPS_CHALLENGE_PATH,
+  openaiAppsChallengeResponse,
+} from "./openai-apps-challenge";
 import { sentryConfig } from "./sentry";
 
 export const KnockMCP = Sentry.instrumentDurableObjectWithSentry(
@@ -42,6 +46,10 @@ const provider = new OAuthProvider({
 const handler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
+
+    if (url.pathname === OPENAI_APPS_CHALLENGE_PATH) {
+      return openaiAppsChallengeResponse(env.OPENAI_APPS_CHALLENGE_TOKEN);
+    }
 
     // Local dev only: wrangler dev rewrites request.url and Host to the
     // configured domain (mcp.knock.app), so the provider would embed
