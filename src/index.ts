@@ -48,7 +48,7 @@ const handler = {
     const url = new URL(request.url);
 
     if (url.pathname === OPENAI_APPS_CHALLENGE_PATH) {
-      return openaiAppsChallengeResponse(env.OPENAI_APPS_CHALLENGE_TOKEN);
+      return openaiAppsChallengeResponse();
     }
 
     // Local dev only: wrangler dev rewrites request.url and Host to the

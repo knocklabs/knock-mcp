@@ -20,6 +20,3 @@ SENTRY_DSN=
 
 # Environment tag attached to Sentry events (development|staging|production)
 INFRA_ENV=development
-
-# Public OpenAI Apps domain-verification token (optional in local; set in wrangler.jsonc for prod)
-# OPENAI_APPS_CHALLENGE_TOKEN=
