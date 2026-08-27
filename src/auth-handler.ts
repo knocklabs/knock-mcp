@@ -1,3 +1,4 @@
+import { CimdFetchError } from "@cloudflare/workers-oauth-provider";
 import type { AuthRequest, OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import { Hono } from "hono";
 import * as jose from "jose";
@@ -70,6 +71,42 @@ async function registerUpstreamClient(
   return client_id;
 }
 
+// lookupClient throws CimdFetchError when a CIMD client document (e.g. ChatGPT's
+// client.json) can't be fetched. We only use the client for display metadata on
+// the approval page, so degrade to null instead of surfacing a 500.
+async function lookupClientSafe(provider: OAuthHelpers, clientId: string) {
+  try {
+    return await provider.lookupClient(clientId);
+  } catch (err: unknown) {
+    if (err instanceof CimdFetchError) {
+      console.error("[lookupClient] CIMD fetch failed:", err.message);
+      Sentry.captureException(err, {
+        tags: { stage: "lookupClient", category: "client-id-metadata-document" },
+      });
+      return null;
+    }
+    throw err;
+  }
+}
+
+function handleAuthorizeToolsError(error: unknown): [{ error: string }, 400 | 500] {
+  console.error("POST /api/authorize-tools error:", error);
+
+  if (error instanceof CimdFetchError) {
+    Sentry.captureException(error, {
+      tags: { route: "POST /api/authorize-tools", category: "client-id-metadata-document" },
+    });
+    return [
+      { error: "Could not verify the connecting client. Please restart the authorization flow." },
+      400,
+    ];
+  }
+
+  Sentry.captureException(error, { tags: { route: "POST /api/authorize-tools" } });
+  const message = error instanceof Error ? error.message : "Unknown error";
+  return [{ error: `Internal server error: ${message}` }, 500];
+}
+
 async function generatePKCE(): Promise<{ codeVerifier: string; codeChallenge: string }> {
   const array = new Uint8Array(32);
   crypto.getRandomValues(array);
@@ -119,33 +156,6 @@ async function buildKnockAuthorizationUrl(
   return `${metadata.authorization_endpoint}?${params.toString()}`;
 }
 
-// RFC 9728 — OAuth 2.0 Protected Resource Metadata
-// Required by newer MCP clients (e.g. MCP Inspector v0.20+) to discover
-// which authorization server protects this resource before starting OAuth.
-app.options("/.well-known/oauth-protected-resource", (c) => {
-  return new Response(null, {
-    status: 204,
-    headers: {
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type",
-    },
-  });
-});
-
-app.get("/.well-known/oauth-protected-resource", (c) => {
-  const origin = c.env.DEV_ORIGIN || new URL(c.req.url).origin;
-  return c.json(
-    {
-      resource: `${origin}/mcp`,
-      authorization_servers: [origin],
-      bearer_methods_supported: ["header"],
-    },
-    200,
-    { "Access-Control-Allow-Origin": "*" },
-  );
-});
-
 app.get("/authorize", async (c) => {
   let oauthReqInfo;
   try {
@@ -174,7 +184,7 @@ app.get("/authorize", async (c) => {
   }
 
   const { token: csrfToken, setCookie } = generateCSRFProtection();
-  const client = await c.env.OAUTH_PROVIDER.lookupClient(clientId);
+  const client = await lookupClientSafe(c.env.OAUTH_PROVIDER, clientId);
 
   const state = btoa(JSON.stringify({ oauthReqInfo }));
   const clientData = btoa(
@@ -480,7 +490,7 @@ app.post("/api/authorize-tools", async (c) => {
     // `clientId` in KV is our AuthKit upstream client ("Knock MCP"). The MCP host
     // (Cursor, Claude Desktop, etc.) is `oauthReqInfo.clientId` on the OAuth provider.
     const mcpClient = oauthReqInfo.clientId
-      ? await c.env.OAUTH_PROVIDER.lookupClient(oauthReqInfo.clientId)
+      ? await lookupClientSafe(c.env.OAUTH_PROVIDER, oauthReqInfo.clientId)
       : null;
     const clientApplication = mcpClient?.clientName
       ? {
@@ -507,10 +517,7 @@ app.post("/api/authorize-tools", async (c) => {
 
     return c.json({ redirectTo });
   } catch (error: unknown) {
-    console.error("POST /api/authorize-tools error:", error);
-    Sentry.captureException(error, { tags: { route: "POST /api/authorize-tools" } });
-    const message = error instanceof Error ? error.message : "Unknown error";
-    return c.json({ error: `Internal server error: ${message}` }, 500);
+    return c.json(...handleAuthorizeToolsError(error));
   }
 });
 

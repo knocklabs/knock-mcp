@@ -17,7 +17,7 @@
   },
   "dependencies": {
     "@cloudflare/codemode": "^0.3.8",
-    "@cloudflare/workers-oauth-provider": "^0.3.3",
+    "@cloudflare/workers-oauth-provider": "^0.10.3",
     "@knocklabs/agent-toolkit": "^0.5.7",
     "@knocklabs/mgmt": "^0.23.3",
     "@knocklabs/node": "^1.32.0",

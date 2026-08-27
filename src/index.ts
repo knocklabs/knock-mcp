@@ -1,3 +1,4 @@
+import { env } from "cloudflare:workers";
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import * as Sentry from "@sentry/cloudflare";
 
@@ -10,6 +11,11 @@ export const KnockMCP = Sentry.instrumentDurableObjectWithSentry(
   KnockMCPBase as unknown as new (state: DurableObjectState, env: Env) => KnockMCPBase,
 ) as unknown as typeof KnockMCPBase;
 
+// The cloudflare:workers env export is typed Cloudflare.Env, which CI's
+// `wrangler types` generates without .dev.vars-only bindings like DEV_ORIGIN.
+// Cast to our global Env, which src/env.d.ts patches with those bindings.
+const origin = (env as Env).DEV_ORIGIN || "https://mcp.knock.app";
+
 const provider = new OAuthProvider({
   apiRoute: "/mcp",
   apiHandler: KnockMCP.serve("/mcp") as any,
@@ -18,20 +24,31 @@ const provider = new OAuthProvider({
   tokenEndpoint: "/token",
   clientRegistrationEndpoint: "/register",
   clientIdMetadataDocumentEnabled: true,
+  // RFC 9728: pins grants and access-token audiences to this exact
+  // resource, and controls /.well-known/oauth-protected-resource.
+  resourceMetadata: { resource: `${origin}/mcp` },
+  // Surface errors the provider keeps generic on the wire, e.g. CIMD
+  // metadata fetch failures at the token endpoint (internal.category
+  // "client-id-metadata-document").
+  onError({ code, description, status, internal }) {
+    Sentry.captureMessage(`oauth-provider error: ${code}`, {
+      level: status >= 500 ? "error" : "warning",
+      tags: { code, status, category: internal?.category },
+      extra: { description, internal },
+    });
+  },
 });
 
-// Rewrite /.well-known/oauth-authorization-server to use the actual request
-// origin instead of the production domain baked in by the OAuth provider.
-// This is essential for local dev where the wrangler routes config causes the
-// provider to embed mcp.knock.app into all endpoint URLs.
 const handler = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext) {
     const url = new URL(request.url);
-    if (url.pathname === "/.well-known/oauth-authorization-server") {
-      // wrangler dev rewrites request.url and Host to the configured domain
-      // (mcp.knock.app). DEV_ORIGIN overrides this so local clients get
-      // endpoint URLs they can actually reach.
-      const origin = env.DEV_ORIGIN || url.origin;
+
+    // Local dev only: wrangler dev rewrites request.url and Host to the
+    // configured domain (mcp.knock.app), so the provider would embed
+    // mcp.knock.app into all endpoint URLs. Serve authorization server
+    // metadata with DEV_ORIGIN endpoints local clients can actually reach.
+    // Production serves the provider's own metadata.
+    if (env.DEV_ORIGIN && url.pathname === "/.well-known/oauth-authorization-server") {
       const metadata = {
         issuer: origin,
         authorization_endpoint: `${origin}/authorize`,
@@ -46,7 +63,8 @@ const handler = {
           "none",
         ],
         revocation_endpoint: `${origin}/token`,
-        code_challenge_methods_supported: ["plain", "S256"],
+        code_challenge_methods_supported: ["S256"],
+        authorization_response_iss_parameter_supported: true,
         client_id_metadata_document_supported: true,
       };
 
@@ -67,23 +85,7 @@ const handler = {
         ? new Request(request.url.replace(url.origin, devOrigin), request)
         : request;
 
-    const response = await provider.fetch(providerRequest, env, ctx);
-
-    // RFC 9728: add resource_metadata to WWW-Authenticate on 401s so MCP
-    // clients know where to fetch /.well-known/oauth-protected-resource.
-    // workers-oauth-provider may not include this yet on all versions.
-    if (response.status === 401) {
-      const origin = env.DEV_ORIGIN || url.origin;
-      const existing = response.headers.get("WWW-Authenticate") ?? 'Bearer realm="OAuth"';
-      const rewritten = new Response(response.body, response);
-      rewritten.headers.set(
-        "WWW-Authenticate",
-        `${existing}, resource_metadata="${origin}/.well-known/oauth-protected-resource"`,
-      );
-      return rewritten;
-    }
-
-    return response;
+    return provider.fetch(providerRequest, env, ctx);
   },
 } satisfies ExportedHandler<Env>;
 
