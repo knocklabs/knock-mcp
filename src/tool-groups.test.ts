@@ -1,10 +1,27 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  allToolGroupKeys,
   defaultSelectedGroupKeys,
   resolveEffectiveSelectedGroups,
   resolveGroupsToCategories,
+  toolGroups,
 } from "./tool-groups";
+
+describe("allToolGroupKeys", () => {
+  it("returns every registered group key", () => {
+    expect(allToolGroupKeys()).toEqual(toolGroups.map((group) => group.key));
+    expect(allToolGroupKeys()).toEqual([
+      "code-mode-mapi",
+      "knock-agent",
+      "manage-resources",
+      "commits",
+      "debug",
+      "manage-data",
+      "documentation",
+    ]);
+  });
+});
 
 describe("resolveEffectiveSelectedGroups", () => {
   it("uses default groups when selection is missing or empty", () => {

@@ -11,8 +11,8 @@ import {
   resolveAgentAuthHeaders,
 } from "./session-api";
 
-vi.mock("../token-store", () => ({
-  getOrRefreshKnockToken: vi.fn().mockResolvedValue("test-token"),
+vi.mock("../session-auth", () => ({
+  resolveKnockAccessToken: vi.fn().mockResolvedValue("test-token"),
 }));
 
 const baseProps: Props = {
@@ -43,18 +43,16 @@ describe("getAgentSessionStream", () => {
   it("GETs the session NDJSON endpoint without Content-Type", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(null, { status: 200, headers: { "Content-Type": "application/x-ndjson" } }),
-      ),
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(null, { status: 200, headers: { "Content-Type": "application/x-ndjson" } }),
+        ),
     );
 
     const sessionId = "550e8400-e29b-41d4-a716-446655440000";
     const headers = await resolveAgentAuthHeaders(baseEnv, baseProps);
-    const result = await getAgentSessionStream(
-      "https://control.knock.app",
-      sessionId,
-      headers,
-    );
+    const result = await getAgentSessionStream("https://control.knock.app", sessionId, headers);
 
     expect(Result.isOk(result)).toBe(true);
     expect(fetch).toHaveBeenCalledWith(

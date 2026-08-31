@@ -9,6 +9,7 @@ import {
   openaiAppsChallengeResponse,
 } from "./openai-apps-challenge";
 import { sentryConfig } from "./sentry";
+import { resolveKnockServiceToken } from "./service-token";
 
 export const KnockMCP = Sentry.instrumentDurableObjectWithSentry(
   sentryConfig,
@@ -31,6 +32,11 @@ const provider = new OAuthProvider({
   // RFC 9728: pins grants and access-token audiences to this exact
   // resource, and controls /.well-known/oauth-protected-resource.
   resourceMetadata: { resource: `${origin}/mcp` },
+  resolveExternalToken: async ({ token, env }) => {
+    const resolved = await resolveKnockServiceToken(token, env);
+    // 0.10+ rejects external bearers unless audience matches resourceMetadata.resource.
+    return resolved ? { ...resolved, audience: `${origin}/mcp` } : null;
+  },
   // Surface errors the provider keeps generic on the wire, e.g. CIMD
   // metadata fetch failures at the token endpoint (internal.category
   // "client-id-metadata-document").

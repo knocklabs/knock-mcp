@@ -110,6 +110,11 @@ export function defaultSelectedGroupKeys(): string[] {
   return toolGroups.filter((g) => g.enabledByDefault).map((g) => g.key);
 }
 
+/** Every registered tool group, including hidden and deprecated ones. */
+export function allToolGroupKeys(): string[] {
+  return toolGroups.map((g) => g.key);
+}
+
 /**
  * Normalize OAuth props: missing, empty, or all-unknown selections fall back to defaults
  * so MCP sessions never initialize with zero tools.

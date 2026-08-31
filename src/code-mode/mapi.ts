@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 import type { Props } from "../types";
 import { getKnockControlBaseUrl } from "../knock-control-url";
-import { getOrRefreshKnockToken } from "../token-store";
+import { resolveKnockAccessToken } from "../session-auth";
 import { registerCodeModeVariant } from "./core";
 
 /**
@@ -20,7 +20,7 @@ export function registerMapiCodeMode(server: McpServer, env: Env, props: Props):
     description:
       "This is the Management API: workflows, channels, templates, commits, and configuration.",
     resolveAuth: async (env, props) => {
-      const token = await getOrRefreshKnockToken(env, props.tokenId);
+      const token = await resolveKnockAccessToken(env, props);
       const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
       if (props.clientId) {
         headers["x-knock-client-id"] = props.clientId;

@@ -3,6 +3,8 @@
 
 import type { AuthRequest } from "@cloudflare/workers-oauth-provider";
 
+import { sha256Hex } from "./sha256";
+
 export class OAuthError extends Error {
   constructor(
     public code: string,
@@ -122,11 +124,7 @@ export async function createOAuthState(
 export async function bindStateToSession(stateToken: string): Promise<BindStateResult> {
   const consentedStateCookieName = "__Host-CONSENTED_STATE";
 
-  const encoder = new TextEncoder();
-  const data = encoder.encode(stateToken);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hashHex = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  const hashHex = await sha256Hex(stateToken);
 
   const setCookie = `${consentedStateCookieName}=${hashHex}; HttpOnly; Secure; Path=/; SameSite=Lax; Max-Age=600`;
   return { setCookie };
@@ -164,11 +162,7 @@ export async function validateOAuthState(
     );
   }
 
-  const encoder = new TextEncoder();
-  const data = encoder.encode(stateFromQuery);
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const stateHash = hashArray.map((b) => b.toString(16).padStart(2, "0")).join("");
+  const stateHash = await sha256Hex(stateFromQuery);
 
   if (stateHash !== consentedStateHash) {
     throw new OAuthError(
