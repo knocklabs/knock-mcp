@@ -51,16 +51,27 @@ describe("withCanonicalMcpResource", () => {
     expect(new URL(request.url).searchParams.get("resource")).toBe(canonical);
   });
 
-  it("rewrites resource on /token form bodies", async () => {
+  it("leaves /authorize without resource as the same request", async () => {
+    const original = new Request("https://mcp.knock.app/authorize?client_id=abc");
+    const request = await withCanonicalMcpResource(original, canonical);
+    expect(request).toBe(original);
+  });
+
+  it("rewrites resource on /token form bodies and drops stale Content-Length", async () => {
+    const form = new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: "user:grant:secret",
+      resource: "https://mcp.knock.app/",
+    }).toString();
     const request = await withCanonicalMcpResource(
       new Request("https://mcp.knock.app/token", {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "refresh_token",
-          refresh_token: "user:grant:secret",
-          resource: "https://mcp.knock.app/",
-        }).toString(),
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Content-Length": String(form.length),
+          Authorization: "Basic abc",
+        },
+        body: form,
       }),
       canonical,
     );
@@ -68,6 +79,27 @@ describe("withCanonicalMcpResource", () => {
     const body = new URLSearchParams(await request.text());
     expect(body.get("resource")).toBe(canonical);
     expect(body.get("grant_type")).toBe("refresh_token");
+    expect(request.headers.get("Authorization")).toBe("Basic abc");
+    // Dropped so a rewritten body cannot keep a stale Content-Length.
+    expect(request.headers.get("Content-Length")).toBeNull();
+  });
+
+  it("keeps /token form bodies readable when resource is omitted", async () => {
+    const form = new URLSearchParams({
+      grant_type: "authorization_code",
+      code: "abc",
+      code_verifier: "xyz",
+    }).toString();
+    const request = await withCanonicalMcpResource(
+      new Request("https://mcp.knock.app/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: form,
+      }),
+      canonical,
+    );
+
+    expect(await request.text()).toBe(form);
   });
 
   it("does not consume unrelated routes", async () => {

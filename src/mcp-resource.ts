@@ -35,20 +35,12 @@ export function canonicalizeMcpResource(requested: string, canonical: string): s
   const canonicalKey = resourceKey(canonical);
   if (!requestedKey || !canonicalKey) return requested;
 
-  let originKey: string | null = null;
-  try {
-    originKey = resourceKey(new URL(canonical).origin);
-  } catch {
-    return requested;
-  }
-
-  if (requestedKey === canonicalKey || requestedKey === originKey) {
-    return canonical;
-  }
+  const originKey = resourceKey(new URL(canonical).origin);
+  if (requestedKey === canonicalKey || requestedKey === originKey) return canonical;
   return requested;
 }
 
-export function rewriteResourceParams(params: URLSearchParams, canonical: string): boolean {
+function rewriteResourceParams(params: URLSearchParams, canonical: string): boolean {
   const values = params.getAll("resource");
   if (values.length === 0) return false;
 
@@ -65,9 +57,24 @@ export function rewriteResourceParams(params: URLSearchParams, canonical: string
   return true;
 }
 
+function cloneRequest(request: Request, url: URL, body?: string): Request {
+  const headers = new Headers(request.headers);
+  if (body !== undefined) headers.delete("content-length");
+  return new Request(url, {
+    method: request.method,
+    headers,
+    body,
+    redirect: request.redirect,
+  });
+}
+
 /**
  * Rewrite `resource` on `/authorize` (query) and `/token` (form body) to the
  * canonical MCP URI before the OAuth provider sees the request.
+ *
+ * Form bodies are always re-attached after `text()` so `/token` stays readable
+ * even when `resource` is absent. `Content-Length` is dropped so the runtime
+ * recomputes it for a rewritten body.
  */
 export async function withCanonicalMcpResource(
   request: Request,
@@ -78,27 +85,16 @@ export async function withCanonicalMcpResource(
 
   const queryChanged = rewriteResourceParams(url.searchParams, canonical);
   const contentType = request.headers.get("content-type") ?? "";
-  const isForm = contentType.includes("application/x-www-form-urlencoded");
-
-  if (!isForm) {
-    if (!queryChanged) return request;
-    return new Request(url, request);
+  if (!contentType.includes("application/x-www-form-urlencoded")) {
+    return queryChanged ? new Request(url, request) : request;
   }
 
   const body = await request.text();
   const params = new URLSearchParams(body);
   const bodyChanged = rewriteResourceParams(params, canonical);
-  if (!queryChanged && !bodyChanged) {
-    return new Request(request.url, {
-      method: request.method,
-      headers: request.headers,
-      body,
-    });
-  }
-
-  return new Request(queryChanged ? url : request.url, {
-    method: request.method,
-    headers: request.headers,
-    body: bodyChanged ? params.toString() : body,
-  });
+  return cloneRequest(
+    request,
+    queryChanged ? url : new URL(request.url),
+    bodyChanged ? params.toString() : body,
+  );
 }
