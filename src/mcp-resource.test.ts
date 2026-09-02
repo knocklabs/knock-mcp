@@ -1,0 +1,78 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  canonicalMcpResource,
+  canonicalizeMcpResource,
+  withCanonicalMcpResource,
+} from "./mcp-resource";
+
+const canonical = "https://mcp.knock.app/mcp";
+
+describe("canonicalMcpResource", () => {
+  it("appends /mcp and strips a trailing slash on the origin", () => {
+    expect(canonicalMcpResource("https://mcp.knock.app")).toBe(canonical);
+    expect(canonicalMcpResource("https://mcp.knock.app/")).toBe(canonical);
+  });
+});
+
+describe("canonicalizeMcpResource", () => {
+  it("leaves the canonical URI unchanged", () => {
+    expect(canonicalizeMcpResource(canonical, canonical)).toBe(canonical);
+  });
+
+  it("maps origin-only and trailing-slash aliases to /mcp", () => {
+    expect(canonicalizeMcpResource("https://mcp.knock.app", canonical)).toBe(canonical);
+    expect(canonicalizeMcpResource("https://mcp.knock.app/", canonical)).toBe(canonical);
+    expect(canonicalizeMcpResource("https://mcp.knock.app/mcp/", canonical)).toBe(canonical);
+  });
+
+  it("treats scheme and host as case-insensitive", () => {
+    expect(canonicalizeMcpResource("HTTPS://MCP.KNOCK.APP/mcp", canonical)).toBe(canonical);
+    expect(canonicalizeMcpResource("https://MCP.knock.app", canonical)).toBe(canonical);
+  });
+
+  it("leaves unrelated resources alone so the provider can reject them", () => {
+    expect(canonicalizeMcpResource("https://mcp.knock.app/token", canonical)).toBe(
+      "https://mcp.knock.app/token",
+    );
+    expect(canonicalizeMcpResource("https://evil.example/mcp", canonical)).toBe(
+      "https://evil.example/mcp",
+    );
+    expect(canonicalizeMcpResource("not-a-url", canonical)).toBe("not-a-url");
+  });
+});
+
+describe("withCanonicalMcpResource", () => {
+  it("rewrites resource on /authorize query strings", async () => {
+    const request = await withCanonicalMcpResource(
+      new Request("https://mcp.knock.app/authorize?resource=https://mcp.knock.app"),
+      canonical,
+    );
+    expect(new URL(request.url).searchParams.get("resource")).toBe(canonical);
+  });
+
+  it("rewrites resource on /token form bodies", async () => {
+    const request = await withCanonicalMcpResource(
+      new Request("https://mcp.knock.app/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: "user:grant:secret",
+          resource: "https://mcp.knock.app/",
+        }).toString(),
+      }),
+      canonical,
+    );
+
+    const body = new URLSearchParams(await request.text());
+    expect(body.get("resource")).toBe(canonical);
+    expect(body.get("grant_type")).toBe("refresh_token");
+  });
+
+  it("does not consume unrelated routes", async () => {
+    const original = new Request("https://mcp.knock.app/mcp", { method: "POST", body: "ping" });
+    const request = await withCanonicalMcpResource(original, canonical);
+    expect(request).toBe(original);
+  });
+});
