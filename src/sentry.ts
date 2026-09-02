@@ -1,3 +1,4 @@
+import type { OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import type { CloudflareOptions, ErrorEvent, Event } from "@sentry/cloudflare";
 
 const REDACTED = "[Filtered]";
@@ -34,6 +35,21 @@ function redactObject(value: Record<string, unknown>): Record<string, unknown> {
     redacted[key] = isSensitiveKey(key) ? REDACTED : nested;
   }
   return redacted;
+}
+
+type OAuthProviderError = Parameters<NonNullable<OAuthProviderOptions["onError"]>>[0];
+
+/**
+ * Expected MCP client protocol rejections (expired refresh tokens, stale
+ * access tokens, resource/audience mismatch, malformed requests). Those are
+ * useful as Cloudflare logs, not as Sentry issues.
+ *
+ * Allowlist: 5xx / `server_error`, or any error with `internal` — that is why
+ * `onError` was added (CIMD fetch failures at `/token` land as a generic
+ * `invalid_client` on the wire).
+ */
+export function shouldCaptureOAuthProviderError(error: OAuthProviderError): boolean {
+  return error.status >= 500 || error.code === "server_error" || Boolean(error.internal);
 }
 
 /** Drop bearer credentials and service tokens from Sentry event payloads. */

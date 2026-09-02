@@ -4,11 +4,9 @@ import * as Sentry from "@sentry/cloudflare";
 
 import { AuthHandler } from "./auth-handler";
 import { KnockMCP as KnockMCPBase } from "./knock-mcp";
-import {
-  OPENAI_APPS_CHALLENGE_PATH,
-  openaiAppsChallengeResponse,
-} from "./openai-apps-challenge";
-import { sentryConfig } from "./sentry";
+import { OPENAI_APPS_CHALLENGE_PATH, openaiAppsChallengeResponse } from "./openai-apps-challenge";
+import { canonicalMcpResource, withCanonicalMcpResource } from "./mcp-resource";
+import { sentryConfig, shouldCaptureOAuthProviderError } from "./sentry";
 import { resolveKnockServiceToken } from "./service-token";
 
 export const KnockMCP = Sentry.instrumentDurableObjectWithSentry(
@@ -31,16 +29,25 @@ const provider = new OAuthProvider({
   clientIdMetadataDocumentEnabled: true,
   // RFC 9728: pins grants and access-token audiences to this exact
   // resource, and controls /.well-known/oauth-protected-resource.
-  resourceMetadata: { resource: `${origin}/mcp` },
+  resourceMetadata: { resource: canonicalMcpResource(origin) },
   resolveExternalToken: async ({ token, env }) => {
     const resolved = await resolveKnockServiceToken(token, env);
     // 0.10+ rejects external bearers unless audience matches resourceMetadata.resource.
-    return resolved ? { ...resolved, audience: `${origin}/mcp` } : null;
+    return resolved ? { ...resolved, audience: canonicalMcpResource(origin) } : null;
   },
   // Surface errors the provider keeps generic on the wire, e.g. CIMD
   // metadata fetch failures at the token endpoint (internal.category
-  // "client-id-metadata-document").
-  onError({ code, description, status, internal }) {
+  // "client-id-metadata-document"). Expected client 4xxs (invalid_grant,
+  // invalid_token, invalid_target) stay in Cloudflare logs only.
+  onError(error) {
+    const { code, description, status, internal } = error;
+    const log = status >= 500 ? console.error : console.warn;
+    log(`oauth-provider error: ${status} ${code} - ${description}`);
+
+    if (!shouldCaptureOAuthProviderError(error)) {
+      return;
+    }
+
     Sentry.captureMessage(`oauth-provider error: ${code}`, {
       level: status >= 500 ? "error" : "warning",
       tags: { code, status, category: internal?.category },
@@ -94,10 +101,15 @@ const handler = {
     // (mcp.knock.app). Rewrite it back to DEV_ORIGIN so the OAuth provider
     // uses the correct origin for audience validation, token issuance, etc.
     const devOrigin = env.DEV_ORIGIN || undefined;
-    const providerRequest =
+    const rewritten =
       devOrigin && url.origin !== devOrigin
         ? new Request(request.url.replace(url.origin, devOrigin), request)
         : request;
+
+    // MCP clients often send the issuer origin (or a trailing slash) as
+    // `resource`. 0.10 exact-matches resourceMetadata.resource, so rewrite
+    // those aliases onto https://mcp.knock.app/mcp before the provider.
+    const providerRequest = await withCanonicalMcpResource(rewritten, canonicalMcpResource(origin));
 
     return provider.fetch(providerRequest, env, ctx);
   },
