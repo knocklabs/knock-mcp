@@ -73,7 +73,7 @@ export const toolGroups: ToolGroup[] = [
     name: "Debug",
     description: "Inspect environments and view sent message logs",
     categories: ["environments", "messages"],
-    enabledByDefault: false,
+    enabledByDefault: true,
   },
   {
     key: "manage-data",
@@ -87,7 +87,7 @@ export const toolGroups: ToolGroup[] = [
     name: "Documentation",
     description: "Search Knock documentation and guides",
     categories: ["documentation"],
-    enabledByDefault: false,
+    enabledByDefault: true,
   },
 ];
 
