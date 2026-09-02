@@ -60,6 +60,16 @@ describe("withCanonicalMcpResource", () => {
     expect(new URL(request.url).searchParams.get("resource")).toBe(canonical);
   });
 
+  it("rewrites GET /authorize even when a form Content-Type is present", async () => {
+    const request = await withCanonicalMcpResource(
+      new Request("https://mcp.knock.app/authorize?resource=https://mcp.knock.app", {
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      }),
+      canonical,
+    );
+    expect(new URL(request.url).searchParams.get("resource")).toBe(canonical);
+  });
+
   it("leaves /authorize without resource as the same request", async () => {
     const original = new Request("https://mcp.knock.app/authorize?client_id=abc");
     const request = await withCanonicalMcpResource(original, canonical);

@@ -78,10 +78,10 @@ export async function withCanonicalMcpResource(
   if (url.pathname !== "/authorize" && url.pathname !== "/token") return request;
 
   const queryChanged = rewriteResourceParams(url.searchParams, canonical);
-  const isForm = (request.headers.get("content-type") ?? "").includes(
-    "application/x-www-form-urlencoded",
-  );
-  if (!isForm) return queryChanged ? new Request(url, request) : request;
+  const isFormPost =
+    request.method === "POST" &&
+    (request.headers.get("content-type") ?? "").includes("application/x-www-form-urlencoded");
+  if (!isFormPost) return queryChanged ? new Request(url, request) : request;
 
   const body = await request.text();
   const params = new URLSearchParams(body);
