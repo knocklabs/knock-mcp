@@ -40,6 +40,15 @@ describe("canonicalizeMcpResource", () => {
     );
     expect(canonicalizeMcpResource("not-a-url", canonical)).toBe("not-a-url");
   });
+
+  it("does not treat query strings as aliases", () => {
+    expect(canonicalizeMcpResource("https://mcp.knock.app?foo=1", canonical)).toBe(
+      "https://mcp.knock.app?foo=1",
+    );
+    expect(canonicalizeMcpResource("https://mcp.knock.app/mcp?audience=other", canonical)).toBe(
+      "https://mcp.knock.app/mcp?audience=other",
+    );
+  });
 });
 
 describe("withCanonicalMcpResource", () => {

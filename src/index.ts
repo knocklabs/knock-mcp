@@ -39,11 +39,12 @@ const provider = new OAuthProvider({
   // metadata fetch failures at the token endpoint (internal.category
   // "client-id-metadata-document"). Expected client 4xxs (invalid_grant,
   // invalid_token, invalid_target) stay in Cloudflare logs only.
-  onError({ code, description, status, internal }) {
+  onError(error) {
+    const { code, description, status, internal } = error;
     const log = status >= 500 ? console.error : console.warn;
     log(`oauth-provider error: ${status} ${code} - ${description}`);
 
-    if (!shouldCaptureOAuthProviderError({ code, description, status, internal })) {
+    if (!shouldCaptureOAuthProviderError(error)) {
       return;
     }
 

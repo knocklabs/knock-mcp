@@ -1,21 +1,18 @@
-const RESOURCE_REWRITE_PATHS = new Set(["/authorize", "/token"]);
-
 /** Canonical MCP resource identifier (RFC 9728) for this worker. */
 export function canonicalMcpResource(origin: string): string {
   return `${origin.replace(/\/$/, "")}/mcp`;
 }
 
 /**
- * Compare resource URIs the way MCP clients actually send them: scheme/host
- * are case-insensitive, and a trailing slash on the path is not meaningful.
+ * Same origin, and path is empty (issuer origin) or equal to the canonical
+ * `/mcp` path. Trailing slashes are not meaningful. Query/fragment are not aliases.
  */
-function resourceKey(value: string): string | null {
+function resourceParts(value: string): { origin: string; path: string } | null {
   try {
     const url = new URL(value);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-    if (url.hash) return null;
-    const path = url.pathname === "/" ? "" : url.pathname.replace(/\/+$/, "");
-    return `${url.protocol.toLowerCase()}//${url.host.toLowerCase()}${path}`;
+    if (url.hash || url.search) return null;
+    return { origin: url.origin, path: url.pathname.replace(/\/+$/, "") };
   } catch {
     return null;
   }
@@ -31,13 +28,10 @@ function resourceKey(value: string): string | null {
  * those aliases are safe; anything else is left for the provider to reject.
  */
 export function canonicalizeMcpResource(requested: string, canonical: string): string {
-  const requestedKey = resourceKey(requested);
-  const canonicalKey = resourceKey(canonical);
-  if (!requestedKey || !canonicalKey) return requested;
-
-  const originKey = resourceKey(new URL(canonical).origin);
-  if (requestedKey === canonicalKey || requestedKey === originKey) return canonical;
-  return requested;
+  const req = resourceParts(requested);
+  const can = resourceParts(canonical);
+  if (!req || !can || req.origin !== can.origin) return requested;
+  return req.path === can.path || req.path === "" ? canonical : requested;
 }
 
 function rewriteResourceParams(params: URLSearchParams, canonical: string): boolean {
@@ -57,9 +51,9 @@ function rewriteResourceParams(params: URLSearchParams, canonical: string): bool
   return true;
 }
 
-function cloneRequest(request: Request, url: URL, body?: string): Request {
+function cloneRequest(request: Request, url: URL, body: string): Request {
   const headers = new Headers(request.headers);
-  if (body !== undefined) headers.delete("content-length");
+  headers.delete("content-length");
   return new Request(url, {
     method: request.method,
     headers,
@@ -81,20 +75,16 @@ export async function withCanonicalMcpResource(
   canonical: string,
 ): Promise<Request> {
   const url = new URL(request.url);
-  if (!RESOURCE_REWRITE_PATHS.has(url.pathname)) return request;
+  if (url.pathname !== "/authorize" && url.pathname !== "/token") return request;
 
   const queryChanged = rewriteResourceParams(url.searchParams, canonical);
-  const contentType = request.headers.get("content-type") ?? "";
-  if (!contentType.includes("application/x-www-form-urlencoded")) {
-    return queryChanged ? new Request(url, request) : request;
-  }
+  const isForm = (request.headers.get("content-type") ?? "").includes(
+    "application/x-www-form-urlencoded",
+  );
+  if (!isForm) return queryChanged ? new Request(url, request) : request;
 
   const body = await request.text();
   const params = new URLSearchParams(body);
   const bodyChanged = rewriteResourceParams(params, canonical);
-  return cloneRequest(
-    request,
-    queryChanged ? url : new URL(request.url),
-    bodyChanged ? params.toString() : body,
-  );
+  return cloneRequest(request, url, bodyChanged ? params.toString() : body);
 }

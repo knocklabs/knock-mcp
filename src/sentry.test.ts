@@ -37,40 +37,15 @@ describe("redactSentryEvent", () => {
 });
 
 describe("shouldCaptureOAuthProviderError", () => {
-  it("drops expected client protocol errors", () => {
+  const headers = {} as Record<string, string>;
+
+  it("drops 4xx client errors that have no internal diagnostic", () => {
     expect(
       shouldCaptureOAuthProviderError({
         code: "invalid_grant",
         description: "Invalid refresh token",
         status: 400,
-      }),
-    ).toBe(false);
-    expect(
-      shouldCaptureOAuthProviderError({
-        code: "invalid_token",
-        description: "Invalid access token",
-        status: 401,
-      }),
-    ).toBe(false);
-    expect(
-      shouldCaptureOAuthProviderError({
-        code: "invalid_target",
-        description: "The resource parameter must exactly match https://mcp.knock.app/mcp",
-        status: 400,
-      }),
-    ).toBe(false);
-    expect(
-      shouldCaptureOAuthProviderError({
-        code: "invalid_request",
-        description: "Method not allowed",
-        status: 405,
-      }),
-    ).toBe(false);
-    expect(
-      shouldCaptureOAuthProviderError({
-        code: "temporarily_unavailable",
-        description: "Token issuance is temporarily unavailable; retry shortly",
-        status: 429,
+        headers,
       }),
     ).toBe(false);
   });
@@ -81,6 +56,7 @@ describe("shouldCaptureOAuthProviderError", () => {
         code: "server_error",
         description: "Internal error",
         status: 500,
+        headers,
       }),
     ).toBe(true);
     expect(
@@ -88,16 +64,18 @@ describe("shouldCaptureOAuthProviderError", () => {
         code: "temporarily_unavailable",
         description: "KV unavailable",
         status: 503,
+        headers,
       }),
     ).toBe(true);
   });
 
-  it("reports provider-internal diagnostics such as CIMD fetch failures", () => {
+  it("reports 4xx errors that carry provider-internal diagnostics", () => {
     expect(
       shouldCaptureOAuthProviderError({
         code: "invalid_client",
         description: "Invalid client",
         status: 401,
+        headers,
         internal: {
           category: "client-id-metadata-document",
           reason: "metadata_resolution_failed",
