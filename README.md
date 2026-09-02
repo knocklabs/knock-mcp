@@ -42,7 +42,7 @@ On first connection, your browser will open to authorize and select which capabi
 
 ## Capabilities
 
-When connecting, you choose exactly which tool groups to enable. **By default**, only **Management API (code mode)** is on; the classic per-resource tools are opt-in.
+When connecting, you choose exactly which tool groups to enable. **By default**, **Management API (code mode)**, **Knock agent**, **Debug**, and **Documentation** are on. **Manage data** and the deprecated classic per-resource tools remain opt-in.
 
 | Group | Description |
 |---|---|
