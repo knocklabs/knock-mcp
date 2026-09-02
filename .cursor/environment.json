@@ -1,0 +1,17 @@
+{
+  "name": "Knock MCP",
+  "install": "bash .cursor/install.sh",
+  "terminals": [
+    {
+      "name": "worker",
+      "command": "npm run dev",
+      "description": "Wrangler dev server for the Knock MCP Worker. Serves the MCP endpoint and OAuth UI on http://localhost:8788 (MCP at /mcp)."
+    }
+  ],
+  "ports": [
+    {
+      "name": "Worker (MCP + OAuth UI)",
+      "port": 8788
+    }
+  ]
+}
