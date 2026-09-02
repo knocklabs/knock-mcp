@@ -36,6 +36,31 @@ function redactObject(value: Record<string, unknown>): Record<string, unknown> {
   return redacted;
 }
 
+/**
+ * OAuth provider `onError` payload. `internal` is server-only diagnostic
+ * the library keeps off the wire (e.g. CIMD metadata fetch failures).
+ */
+export type OAuthProviderErrorInfo = {
+  code: string;
+  description: string;
+  status: number;
+  internal?: { category: string; reason: string; detail?: unknown };
+};
+
+/**
+ * Expected MCP client protocol rejections (expired refresh tokens, stale
+ * access tokens, resource/audience mismatch, malformed requests). Those are
+ * useful as Cloudflare logs, not as Sentry issues.
+ *
+ * Still report 5xx / `server_error`, and any error with `internal` — that is
+ * why `onError` was added (CIMD fetch failures at `/token` land as a generic
+ * `invalid_client` on the wire).
+ */
+export function shouldCaptureOAuthProviderError(error: OAuthProviderErrorInfo): boolean {
+  if (error.status >= 500 || error.code === "server_error") return true;
+  return Boolean(error.internal);
+}
+
 /** Drop bearer credentials and service tokens from Sentry event payloads. */
 export function redactSentryEvent<T extends Event>(event: T): T {
   if (event.request?.headers) {

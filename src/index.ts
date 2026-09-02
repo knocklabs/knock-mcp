@@ -4,11 +4,8 @@ import * as Sentry from "@sentry/cloudflare";
 
 import { AuthHandler } from "./auth-handler";
 import { KnockMCP as KnockMCPBase } from "./knock-mcp";
-import {
-  OPENAI_APPS_CHALLENGE_PATH,
-  openaiAppsChallengeResponse,
-} from "./openai-apps-challenge";
-import { sentryConfig } from "./sentry";
+import { OPENAI_APPS_CHALLENGE_PATH, openaiAppsChallengeResponse } from "./openai-apps-challenge";
+import { sentryConfig, shouldCaptureOAuthProviderError } from "./sentry";
 import { resolveKnockServiceToken } from "./service-token";
 
 export const KnockMCP = Sentry.instrumentDurableObjectWithSentry(
@@ -39,8 +36,16 @@ const provider = new OAuthProvider({
   },
   // Surface errors the provider keeps generic on the wire, e.g. CIMD
   // metadata fetch failures at the token endpoint (internal.category
-  // "client-id-metadata-document").
+  // "client-id-metadata-document"). Expected client 4xxs (invalid_grant,
+  // invalid_token, invalid_target) stay in Cloudflare logs only.
   onError({ code, description, status, internal }) {
+    const log = status >= 500 ? console.error : console.warn;
+    log(`oauth-provider error: ${status} ${code} - ${description}`);
+
+    if (!shouldCaptureOAuthProviderError({ code, description, status, internal })) {
+      return;
+    }
+
     Sentry.captureMessage(`oauth-provider error: ${code}`, {
       level: status >= 500 ? "error" : "warning",
       tags: { code, status, category: internal?.category },
