@@ -9,7 +9,7 @@ import { registerCodeModeVariant } from "./core";
 
 const API_DESCRIPTION = `This is the Knock API (data plane). Use it to trigger workflows and manage environment-scoped runtime data: users, tenants, objects, preferences, schedules, subscriptions, messages, feeds, channel data, and provider interactions.
 
-Do not use it to define or configure workflows, channels, templates, broadcasts, guides, layouts, partials, commits, or environments. For account configuration, use Management API code mode (\`search_mapi\`, \`execute_mapi_read\`, \`execute_mapi_write\`) or the hosted Knock agent.`;
+Do not use it to define or configure workflows, channels, templates, broadcasts, guides, layouts, partials, commits, or environments. For account configuration, use Management API code mode (\`search_mapi\`, \`execute_mapi_read\`, and \`execute_mapi_write\` when Management API Manage is enabled) or the hosted Knock agent.`;
 
 /**
  * Code Mode for the Knock public API (`KNOCK_API_URL`).
