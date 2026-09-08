@@ -42,16 +42,15 @@ On first connection, your browser will open to authorize and select which capabi
 
 ## Capabilities
 
-When connecting, you choose exactly which tool groups to enable. **By default**, **Management API (code mode)**, **Knock agent**, **Debug**, and **Documentation** are on. **Manage data** and the deprecated classic per-resource tools remain opt-in.
+When connecting, you choose exactly which capabilities to enable. **By default**, Management API read/write, public API read-only, the **Knock agent**, and **Documentation** are on. Public API writes and deprecated classic per-resource tools remain opt-in.
 
-| Group | Description |
-|---|---|
-| **Management API (code mode)** | `search_mapi`, `execute_mapi_read` (GET), and `execute_mapi_write` (POST/PUT/PATCH/DELETE when Manage is enabled) — explore the [OpenAPI spec](https://control.knock.app/v1/openapi) and call the Knock Management API from sandboxed JavaScript ([Code Mode](https://blog.cloudflare.com/code-mode-mcp/)). On connect, choose **Read only** or **Read & write**. A future **public API** variant will use the `search_api` / `execute_api_read` / `execute_api_write` prefix. |
-| **Manage resources** | Create and manage notification workflows, channels, templates, email layouts, partials, and other configuration (classic toolkit) |
-| **Commits** | Commit and promote changes across environments |
-| **Debug** | Inspect environments and view sent message logs |
-| **Manage data** | Manage users, tenants, and object data |
-| **Documentation** | Search Knock documentation and guides |
+| Group                          | Description                                                                                                                                                                                                                                                                                                                         |
+| ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Management API (code mode)** | `search_mapi`, `execute_mapi_read` (GET), and `execute_mapi_write` (POST/PUT/PATCH/DELETE when Manage is enabled) — use the [Management API OpenAPI spec](https://control.knock.app/v1/openapi) for control-plane configuration such as workflows, channels, templates, broadcasts, guides, commits, and environments.              |
+| **API (code mode)**            | `search_api`, `execute_api_read` (GET), and `execute_api_write` (POST/PUT/PATCH/DELETE when Manage is enabled) — use the [API OpenAPI spec](https://api.knock.app/v1/openapi) for environment-scoped data-plane operations such as workflow triggers, users, tenants, objects, preferences, schedules, subscriptions, and messages. |
+| **Knock agent**                | Create and update configuration resources with full account context, or answer high-level analytics questions.                                                                                                                                                                                                                      |
+| **Documentation**              | Search Knock documentation and guides                                                                                                                                                                                                                                                                                               |
+| **Deprecated classic tools**   | Opt-in per-resource tools for resource management, commits, debugging, and data management. These remain available for compatibility and are superseded by Code Mode.                                                                                                                                                               |
 
 ## Authentication
 
@@ -76,7 +75,7 @@ This is token passthrough: the same Management API token authenticates the MCP s
 }
 ```
 
-Service-token sessions skip the consent screen and enable **all** MCP tool groups (Management API code mode with read/write, the Knock agent, resource management, commits, debug, data management, and documentation). Least privilege comes from the token's Management API scopes, not MCP checkboxes. OAuth consent still uses the default subset unless the user explicitly selects more.
+Service-token sessions skip the consent screen and enable **all** MCP tool groups (both Code Mode APIs with read/write, the Knock agent, deprecated classic tools, and documentation). Least privilege comes from the token's scopes, not MCP checkboxes. OAuth consent still uses the default subset unless the user explicitly selects more.
 
 ## Self-Hosting & Local Development
 
@@ -120,15 +119,16 @@ Copy the returned `id` into `wrangler.jsonc`:
 cp .dev.vars.example .dev.vars
 ```
 
-| Variable | Description |
-|---|---|
-| `KNOCK_AUTH_URL` | Your Knock AuthKit domain (e.g. `https://your-app.authkit.app`) |
-| `KNOCK_DASHBOARD_URL` | Knock dashboard URL (e.g. `https://dashboard.knock.app`) |
-| `KNOCK_CONTROL_URL` | Management API control plane (e.g. `https://control.knock.app`) — used for Code Mode OpenAPI fetch and `execute_mapi_read` / `execute_mapi_write` |
-| `COOKIE_ENCRYPTION_KEY` | Random 32-byte hex string — generate with `openssl rand -hex 32` |
-| `DEV_ORIGIN` | Set to `http://localhost:8788` for local dev only |
-| `SENTRY_DSN` | Sentry DSN for error reporting; leave blank to disable |
-| `INFRA_ENV` | Tag attached to Sentry events (`development`, `staging`, `production`) |
+| Variable                | Description                                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `KNOCK_AUTH_URL`        | Your Knock AuthKit domain (e.g. `https://your-app.authkit.app`)                                                                                   |
+| `KNOCK_DASHBOARD_URL`   | Knock dashboard URL (e.g. `https://dashboard.knock.app`)                                                                                          |
+| `KNOCK_CONTROL_URL`     | Management API control plane (e.g. `https://control.knock.app`) — used for Code Mode OpenAPI fetch and `execute_mapi_read` / `execute_mapi_write` |
+| `KNOCK_API_URL`         | Public API data plane (e.g. `https://api.knock.app`) — used for Code Mode OpenAPI fetch and `execute_api_read` / `execute_api_write`              |
+| `COOKIE_ENCRYPTION_KEY` | Random 32-byte hex string — generate with `openssl rand -hex 32`                                                                                  |
+| `DEV_ORIGIN`            | Set to `http://localhost:8788` for local dev only                                                                                                 |
+| `SENTRY_DSN`            | Sentry DSN for error reporting; leave blank to disable                                                                                            |
+| `INFRA_ENV`             | Tag attached to Sentry events (`development`, `staging`, `production`)                                                                            |
 
 **Dynamic Worker loader (Code Mode):** this Worker declares a [`worker_loaders`](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) binding named `LOADER` in [`wrangler.jsonc`](wrangler.jsonc) for [`@cloudflare/codemode`](https://github.com/cloudflare/agents/tree/main/packages/codemode). Use a current `compatibility_date` and a recent `wrangler` / Workers runtime.
 
@@ -215,14 +215,15 @@ Cloudflare Worker (this repo)
     │  ├─ /mcp          — MCP endpoint (Durable Object)
     │  ├─ /authorize    — OAuth consent + tool selection UI
     │  └─ /callback     — Token exchange with Knock AuthKit
-    │       search_mapi / execute_mapi_read / execute_mapi_write  — Code Mode
+    │       search_mapi / execute_mapi_read / execute_mapi_write  — control-plane Code Mode
+    │       search_api / execute_api_read / execute_api_write     — data-plane Code Mode
     │       optional classic toolkit tools
     │
     ▼
-Knock Management API (control.knock.app) and other Knock APIs
+Knock Management API (control.knock.app) and API (api.knock.app)
 ```
 
-The worker is deployed on Cloudflare Workers with Durable Objects for stateful MCP sessions. It acts as both the OAuth authorization server (to MCP clients) and an OAuth client (to Knock's AuthKit). Dynamic client registration means the worker registers itself with AuthKit at runtime — no static client IDs or pre-registered redirect URIs needed. **Code Mode** uses [`@cloudflare/codemode`](https://github.com/cloudflare/agents/tree/main/packages/codemode) with a [Worker Loader](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) so LLM-generated code runs in an isolated sub-worker; `mapi.request()` on the host applies your OAuth token to `https://control.knock.app`.
+The worker is deployed on Cloudflare Workers with Durable Objects for stateful MCP sessions. It acts as both the OAuth authorization server (to MCP clients) and an OAuth client (to Knock's AuthKit). Dynamic client registration means the worker registers itself with AuthKit at runtime — no static client IDs or pre-registered redirect URIs needed. **Code Mode** uses [`@cloudflare/codemode`](https://github.com/cloudflare/agents/tree/main/packages/codemode) with a [Worker Loader](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) so LLM-generated code runs in an isolated sub-worker. `mapi.request()` applies the session credential to `control.knock.app`; `api.request()` exchanges that credential for an environment-scoped secret API key on the host and applies it to `api.knock.app`. Auth credentials never enter the sandbox.
 
 ## License
 

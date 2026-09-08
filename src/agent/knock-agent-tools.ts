@@ -8,18 +8,14 @@ import type { Props } from "../types";
 import { createStartStreamBudgetController } from "./abort";
 import { runKnockAgentTool } from "./mcp-response";
 import { knockAgentProgressHandler } from "./progress";
-import {
-  DEFAULT_START_STREAM_BUDGET_MS,
-  startAgentRun,
-  streamAgentSessionOnce,
-} from "./stream";
+import { DEFAULT_START_STREAM_BUDGET_MS, startAgentRun, streamAgentSessionOnce } from "./stream";
 import { MAX_AGENT_PROMPT_CHARS } from "./validation";
 
 const START_KNOCK_AGENT_DESCRIPTION = `Use Knock's hosted agent to create and update workflows, broadcasts, guides, email layouts, partials, and translations.
 
-Prefer this tool when creating or updating those resources in a Knock account — the hosted agent has full account context and usually needs fewer tokens than calling the Management API directly. Use Management API code mode (\`search_mapi\` / \`execute_mapi_read\` / \`execute_mapi_write\`) when you need a specific API call, or when the user asks to use the API.
+Prefer this tool when creating or updating those configuration resources in a Knock account — the hosted agent has full account context and usually needs fewer tokens than calling the Management API directly. Use Management API code mode (\`search_mapi\` / \`execute_mapi_read\` / \`execute_mapi_write\`) for specific control-plane calls such as workflow definitions, channels, templates, commits, and environments.
 
-For analytics questions, the Knock agent can return high-level message and engagement data. Those queries are not available through the Management API.
+Use API code mode (\`search_api\` / \`execute_api_read\` / \`execute_api_write\`) for data-plane calls such as triggering workflows and working with users, tenants, objects, preferences, schedules, subscriptions, or individual messages. For analytics questions, the Knock agent can return high-level message and engagement data that is not available through either direct API.
 
 Pass the user's request verbatim in prompt. Do not reinterpret or shorten it.
 
@@ -28,7 +24,7 @@ This tool waits up to ~45 seconds, then returns a consolidated result. Read the 
 - Status: error — the run failed; read the Error line.
 - Status: running — the run is still going; save the Session ID and poll with get_knock_agent until Status is complete or error.
 
-Agents can support follow-up runs by passing in the returned session_id. Use a follow-up run only for related edits or questions about a resource you just modified. Otherwise, use the Management API or start a new agent session.`;
+Agents can support follow-up runs by passing in the returned session_id. Use a follow-up run only for related edits or questions about a resource you just modified. Otherwise, use the appropriate direct API or start a new agent session.`;
 
 const GET_KNOCK_AGENT_DESCRIPTION = `Poll an in-progress Knock agent session and return a consolidated result (agent text, tool calls, modified resources, and a Status line).
 
@@ -76,10 +72,11 @@ export function registerKnockAgentTools(server: McpServer, env: Env, props: Prop
     ) => {
       Sentry.setTag("knock.tool", "start_knock_agent");
 
-      const { controller, getAbortReason, clear: clearBudget } = createStartStreamBudgetController(
-        DEFAULT_START_STREAM_BUDGET_MS,
-        extra.signal,
-      );
+      const {
+        controller,
+        getAbortReason,
+        clear: clearBudget,
+      } = createStartStreamBudgetController(DEFAULT_START_STREAM_BUDGET_MS, extra.signal);
 
       try {
         return await runKnockAgentTool(() =>
@@ -105,10 +102,7 @@ export function registerKnockAgentTools(server: McpServer, env: Env, props: Prop
       title: "Get Knock agent status",
       description: GET_KNOCK_AGENT_DESCRIPTION,
       inputSchema: {
-        session_id: z
-          .string()
-          .uuid()
-          .describe("Agent session ID from start_knock_agent"),
+        session_id: z.string().uuid().describe("Agent session ID from start_knock_agent"),
       },
       annotations: {
         title: "Get Knock agent status",

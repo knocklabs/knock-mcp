@@ -10,7 +10,7 @@ import {
 } from "../openapi-cache";
 import { runCodeModeExecution } from "./execution";
 import { runCodeModeTool } from "./mcp-response";
-import { executeHostRequest } from "./request";
+import { executeHostRequest, type CodeModeRequestOptions } from "./request";
 import { type CodeModeAccessMode } from "./utils";
 
 export type { CodeModeRequestOptions } from "./request";
@@ -24,13 +24,23 @@ export interface CodeModeVariantConfig {
   namespace: string;
   baseUrl: string;
   description: string;
+  /** How callers select an environment for this API variant. */
+  environmentTargeting?: "query" | "request";
+  /** JavaScript example shown in the read execute tool description. */
+  readExample?: string;
+  /** JavaScript example shown in the write execute tool description. */
+  writeExample?: string;
   /**
    * Session-level access from OAuth consent.
    * `"read"` registers search + GET execute only.
    * `"read_write"` also registers a separate write execute tool.
    */
   accessMode?: "read" | "read_write";
-  resolveAuth: (env: Env, props: Props) => Promise<{ headers: Record<string, string> }>;
+  resolveAuth: (
+    env: Env,
+    props: Props,
+    request: CodeModeRequestOptions,
+  ) => Promise<{ headers: Record<string, string> }>;
 }
 
 interface RequestHandlerConfig {
@@ -39,6 +49,7 @@ interface RequestHandlerConfig {
   env: Env;
   props: Props;
   accessMode: CodeModeAccessMode;
+  environmentTargeting: "query" | "request";
 }
 
 function createRequestHandler(config: RequestHandlerConfig) {
@@ -78,12 +89,30 @@ interface OpenApiSpec {
 declare const ${namespace}: { spec(): Promise<OpenApiSpec> };
 `.trim();
 
-const READ_REQUEST_TYPES = (namespace: string) =>
+const QUERY_TYPES = `
+type QueryValue =
+  | string
+  | number
+  | boolean
+  | Array<string | number | boolean>
+  | undefined;
+`.trim();
+
+const ENVIRONMENT_PROPERTY = (environmentTargeting: "query" | "request") =>
+  environmentTargeting === "request"
+    ? `
+  /** Environment slug for the API-key exchange. Omit to use the account default. */
+  environment?: string;`
+    : "";
+
+const READ_REQUEST_TYPES = (namespace: string, environmentTargeting: "query" | "request") =>
   `
+${QUERY_TYPES}
 interface RequestOptions {
   method: "GET";
   path: string;
-  query?: Record<string, string | number | boolean | undefined>;
+${ENVIRONMENT_PROPERTY(environmentTargeting)}
+  query?: Record<string, QueryValue>;
   headers?: Record<string, string>;
 }
 /** Wrapper returned by ${namespace}.request() — the API body is in \`result\`, not at the top level. */
@@ -95,12 +124,14 @@ interface RequestResponse {
 declare const ${namespace}: { request(options: RequestOptions): Promise<RequestResponse> };
 `.trim();
 
-const WRITE_REQUEST_TYPES = (namespace: string) =>
+const WRITE_REQUEST_TYPES = (namespace: string, environmentTargeting: "query" | "request") =>
   `
+${QUERY_TYPES}
 interface RequestOptions {
   method: "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
-  query?: Record<string, string | number | boolean | undefined>;
+${ENVIRONMENT_PROPERTY(environmentTargeting)}
+  query?: Record<string, QueryValue>;
   body?: unknown;
   contentType?: string;
   rawBody?: boolean;
@@ -150,6 +181,22 @@ export function registerCodeModeVariant(
     description,
     resolveAuth,
     accessMode = "read_write",
+    environmentTargeting = "query",
+    readExample = `async () => {
+  const res = await ${namespace}.request({
+    method: "GET",
+    path: "/v1/workflows",
+  });
+  return { status: res.status, entries: res.result.entries, page_info: res.result.page_info };
+}`,
+    writeExample = `async () => {
+  const res = await ${namespace}.request({
+    method: "PUT",
+    path: "/v1/workflows/welcome",
+    body: { name: "Welcome", steps: [] },
+  });
+  return { status: res.status, result: res.result };
+}`,
   } = config;
   const v = variant;
   const searchName = `search_${v}`;
@@ -159,6 +206,10 @@ export function registerCodeModeVariant(
   const accessNote = writesEnabled
     ? `This session allows **read and write**. Use \`${executeReadName}\` for \`GET\` and \`${executeWriteName}\` for \`POST\`/\`PUT\`/\`PATCH\`/\`DELETE\`.`
     : `This session is **read-only**: only \`${executeReadName}\` (\`GET\`) is available.`;
+  const environmentGuide =
+    environmentTargeting === "request"
+      ? "Set the top-level `environment` request option to target a specific Knock environment. Omit it to exchange an API key for the account's default environment. Do not put `environment` in `query`."
+      : "Omit `environment` from `query` to use the account's default environment; explicitly target another environment by adding it to `query`.";
 
   const executor = new DynamicWorkerExecutor({
     loader: env.LOADER,
@@ -172,6 +223,7 @@ export function registerCodeModeVariant(
     env,
     props,
     accessMode: "read",
+    environmentTargeting,
   };
 
   const writeRequestHandlerConfig: RequestHandlerConfig = {
@@ -180,6 +232,7 @@ export function registerCodeModeVariant(
     env,
     props,
     accessMode: "write",
+    environmentTargeting,
   };
 
   // Split providers like @cloudflare/codemode openApiMcpServer: search only gets spec(),
@@ -262,22 +315,16 @@ async () => {
 
 ${accessNote}
 
-Use this tool (Code Mode: \`${executeReadName}\`) for **read-only** \`${variantLabel}\` calls at ${baseUrl} via \`${namespace}.request({ method: "GET", ... })\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host. Omit \`environment\` to use the account's default environment; callers can explicitly target another environment by adding it to \`query\`.${writesEnabled ? ` For create/update/delete, use \`${executeWriteName}\` instead.` : ""}
+Use this tool (Code Mode: \`${executeReadName}\`) for **read-only** \`${variantLabel}\` calls at ${baseUrl} via \`${namespace}.request({ method: "GET", ... })\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host. ${environmentGuide}${writesEnabled ? ` For create/update/delete, use \`${executeWriteName}\` instead.` : ""}
 
 ${REQUEST_RESPONSE_GUIDE(namespace)}
 
 Types:
-${READ_REQUEST_TYPES(namespace)}
+${READ_REQUEST_TYPES(namespace, environmentTargeting)}
 
 Your code must be a single JavaScript async arrow function (no TypeScript).
 Example:
-async () => {
-  const res = await ${namespace}.request({
-    method: "GET",
-    path: "/v1/workflows",
-  });
-  return { status: res.status, entries: res.result.entries, page_info: res.result.page_info };
-}
+${readExample}
 `,
       inputSchema: { code: z.string().describe("JavaScript async arrow function to execute") },
       annotations: {
@@ -303,23 +350,16 @@ async () => {
 
 ${accessNote}
 
-Use this tool (Code Mode: \`${executeWriteName}\`) for **write** \`${variantLabel}\` calls at ${baseUrl} via \`${namespace}.request({ method: "POST"|"PUT"|"PATCH"|"DELETE", ... })\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host. Omit \`environment\` to use the account's default environment; callers can explicitly target another environment by adding it to \`query\`. For \`GET\`, use \`${executeReadName}\` instead.
+Use this tool (Code Mode: \`${executeWriteName}\`) for **write** \`${variantLabel}\` calls at ${baseUrl} via \`${namespace}.request({ method: "POST"|"PUT"|"PATCH"|"DELETE", ... })\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host. ${environmentGuide} For \`GET\`, use \`${executeReadName}\` instead.
 
 ${REQUEST_RESPONSE_GUIDE(namespace)}
 
 Types:
-${WRITE_REQUEST_TYPES(namespace)}
+${WRITE_REQUEST_TYPES(namespace, environmentTargeting)}
 
 Your code must be a single JavaScript async arrow function (no TypeScript).
 Example:
-async () => {
-  const res = await ${namespace}.request({
-    method: "PUT",
-    path: "/v1/workflows/welcome",
-    body: { name: "Welcome", steps: [] },
-  });
-  return { status: res.status, result: res.result };
-}
+${writeExample}
 `,
       inputSchema: { code: z.string().describe("JavaScript async arrow function to execute") },
       annotations: {

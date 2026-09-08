@@ -13,6 +13,7 @@ describe("allToolGroupKeys", () => {
     expect(allToolGroupKeys()).toEqual(toolGroups.map((group) => group.key));
     expect(allToolGroupKeys()).toEqual([
       "code-mode-mapi",
+      "code-mode-api",
       "knock-agent",
       "manage-resources",
       "commits",
@@ -26,12 +27,7 @@ describe("allToolGroupKeys", () => {
 describe("resolveEffectiveSelectedGroups", () => {
   it("uses default groups when selection is missing or empty", () => {
     const defaults = defaultSelectedGroupKeys();
-    expect(defaults).toEqual([
-      "code-mode-mapi",
-      "knock-agent",
-      "debug",
-      "documentation",
-    ]);
+    expect(defaults).toEqual(["code-mode-mapi", "code-mode-api", "knock-agent", "documentation"]);
     expect(defaults).not.toContain("manage-data");
     expect(resolveEffectiveSelectedGroups(undefined)).toEqual(defaults);
     expect(resolveEffectiveSelectedGroups(null)).toEqual(defaults);
@@ -46,14 +42,27 @@ describe("resolveEffectiveSelectedGroups", () => {
 
   it("preserves valid explicit selections", () => {
     expect(resolveEffectiveSelectedGroups(["documentation"])).toEqual(["documentation"]);
-    expect(resolveEffectiveSelectedGroups(["code-mode-mapi", "bogus"])).toEqual([
-      "code-mode-mapi",
-    ]);
+    expect(resolveEffectiveSelectedGroups(["code-mode-mapi", "bogus"])).toEqual(["code-mode-mapi"]);
   });
 });
 
 describe("resolveGroupsToCategories", () => {
   it("maps code-mode-mapi to the mapi sentinel category", () => {
     expect(resolveGroupsToCategories(["code-mode-mapi"])).toEqual(["__codeMode:mapi"]);
+  });
+
+  it("maps code-mode-api to the public API sentinel category", () => {
+    expect(resolveGroupsToCategories(["code-mode-api"])).toEqual(["__codeMode:api"]);
+  });
+});
+
+describe("deprecated groups", () => {
+  it("keeps every superseded classic toolkit group available under Deprecated", () => {
+    expect(toolGroups.filter((group) => group.deprecated).map((group) => group.key)).toEqual([
+      "manage-resources",
+      "commits",
+      "debug",
+      "manage-data",
+    ]);
   });
 });

@@ -6,51 +6,52 @@
   "compatibility_date": "2025-02-01",
   "worker_loaders": [
     {
-      "binding": "LOADER"
-    }
+      "binding": "LOADER",
+    },
   ],
   "migrations": [
     {
       "new_sqlite_classes": ["KnockMCP"],
-      "tag": "v1"
-    }
+      "tag": "v1",
+    },
   ],
   "durable_objects": {
     "bindings": [
       {
         "class_name": "KnockMCP",
-        "name": "MCP_OBJECT"
-      }
-    ]
+        "name": "MCP_OBJECT",
+      },
+    ],
   },
   "kv_namespaces": [
     {
       "binding": "OAUTH_KV",
-      "id": "6bd2b6c4a2b6472391c5628904890d54"
-    }
+      "id": "6bd2b6c4a2b6472391c5628904890d54",
+    },
   ],
   "routes": [
     {
       "pattern": "mcp.knock.app",
-      "custom_domain": true
-    }
+      "custom_domain": true,
+    },
   ],
   "assets": {
     "directory": "client/dist",
     "binding": "ASSETS",
     "html_handling": "none",
-    "not_found_handling": "none"
+    "not_found_handling": "none",
   },
   "vars": {
     "KNOCK_AUTH_URL": "https://signin.knock.app",
     "KNOCK_DASHBOARD_URL": "https://dashboard.knock.app",
     "INFRA_ENV": "production",
-    "KNOCK_CONTROL_URL": "https://control.knock.app"
+    "KNOCK_API_URL": "https://api.knock.app",
+    "KNOCK_CONTROL_URL": "https://control.knock.app",
   },
   "observability": {
-    "enabled": true
+    "enabled": true,
   },
   "dev": {
-    "port": 8788
-  }
+    "port": 8788,
+  },
 }

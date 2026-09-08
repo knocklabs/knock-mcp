@@ -1,18 +1,19 @@
 /**
  * Cached OpenAPI documents for Code Mode, keyed by API variant.
- * "mapi" = Knock Management API; "api" = public API (URL reserved for a future code-mode group).
+ * "mapi" = Knock Management API; "api" = Knock public API.
  */
+import { getKnockApiOpenApiUrl } from "./knock-api-url";
 import { getKnockControlOpenApiUrl } from "./knock-control-url";
 
 export type OpenAPIVariant = "mapi" | "api";
 
-/** Placeholder — wired when the public-API code-mode group ships. */
-const PUBLIC_API_OPENAPI_URL = "https://api.knock.app/v1/openapi";
-
 const KV_TTL_SECONDS = 24 * 60 * 60;
 const VERSION = "v2";
 
-type OpenAPIEnv = Pick<Env, "OAUTH_KV"> & { KNOCK_CONTROL_URL: string };
+type OpenAPIEnv = Pick<Env, "OAUTH_KV"> & {
+  KNOCK_API_URL?: string;
+  KNOCK_CONTROL_URL: string;
+};
 
 interface ResolvedSpecMemo {
   spec: Record<string, unknown>;
@@ -23,16 +24,13 @@ interface ResolvedSpecMemo {
 const resolvedMemo = new Map<OpenAPIVariant, ResolvedSpecMemo>();
 
 function cacheKey(variant: OpenAPIVariant, env: OpenAPIEnv): string {
-  if (variant === "mapi") {
-    const host = new URL(getKnockControlOpenApiUrl(env)).hostname;
-    return `openapi:mapi:${host}:${VERSION}`;
-  }
-  return `openapi:${variant}:${VERSION}`;
+  const url = variant === "mapi" ? getKnockControlOpenApiUrl(env) : getKnockApiOpenApiUrl(env);
+  return `openapi:${variant}:${new URL(url).hostname}:${VERSION}`;
 }
 
 function openApiUrlForVariant(variant: OpenAPIVariant, env: OpenAPIEnv): string {
   if (variant === "mapi") return getKnockControlOpenApiUrl(env);
-  return PUBLIC_API_OPENAPI_URL;
+  return getKnockApiOpenApiUrl(env);
 }
 
 /**

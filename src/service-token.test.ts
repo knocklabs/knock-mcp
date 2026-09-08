@@ -73,13 +73,14 @@ describe("parseWhoamiIdentity", () => {
 });
 
 describe("buildServiceTokenProps", () => {
-  it("enables every tool group with read/write Management API access", () => {
+  it("enables every tool group with read/write access to both APIs", () => {
     expect(buildServiceTokenProps("knock_st_secret")).toEqual({
       authKind: "service_token",
       serviceToken: "knock_st_secret",
       clientId: SERVICE_TOKEN_CLIENT_ID,
       selectedGroups: allToolGroupKeys(),
       mapiAccessMode: "read_write",
+      apiAccessMode: "read_write",
     });
   });
 

@@ -5,7 +5,7 @@ import * as jose from "jose";
 import * as Sentry from "@sentry/cloudflare";
 
 import { toolGroups, resolveEffectiveSelectedGroups } from "./tool-groups";
-import { resolveMapiAccessMode } from "./code-mode/access";
+import { resolveApiAccessMode, resolveMapiAccessMode } from "./code-mode/access";
 import { buildOauthProps } from "./session-auth";
 import { storeKnockTokens } from "./token-store";
 import {
@@ -444,9 +444,10 @@ app.post("/api/authorize-tools", async (c) => {
       csrfToken: string;
       selectedGroups: string[];
       mapiAccessMode?: string;
+      apiAccessMode?: string;
     }>();
 
-    const { session, csrfToken, selectedGroups, mapiAccessMode } = body;
+    const { session, csrfToken, selectedGroups, mapiAccessMode, apiAccessMode } = body;
 
     if (!session || !csrfToken || !Array.isArray(selectedGroups)) {
       return c.json({ error: "Missing required fields" }, 400);
@@ -486,6 +487,7 @@ app.post("/api/authorize-tools", async (c) => {
 
     const effectiveGroups = resolveEffectiveSelectedGroups(selectedGroups);
     const resolvedMapiAccessMode = resolveMapiAccessMode(effectiveGroups, mapiAccessMode);
+    const resolvedApiAccessMode = resolveApiAccessMode(effectiveGroups, apiAccessMode);
 
     // `clientId` in KV is our AuthKit upstream client ("Knock MCP"). The MCP host
     // (Cursor, Claude Desktop, etc.) is `oauthReqInfo.clientId` on the OAuth provider.
@@ -511,6 +513,7 @@ app.post("/api/authorize-tools", async (c) => {
         email,
         selectedGroups: effectiveGroups,
         mapiAccessMode: resolvedMapiAccessMode,
+        apiAccessMode: resolvedApiAccessMode,
         clientApplication,
       }),
     });

@@ -19,7 +19,7 @@ vi.mock("@knocklabs/node", () => ({
 
 import { tools } from "@knocklabs/agent-toolkit/core";
 
-import { createKnockClient } from "./knock-client";
+import { createKnockClient, exchangeKnockApiKey } from "./knock-client";
 
 const config = {
   serviceToken: "service-token",
@@ -47,6 +47,14 @@ describe("createKnockClient public API exchange", () => {
     await client.publicApi("staging");
 
     expect(exchangeMock).toHaveBeenCalledWith({ environment: "staging" });
+  });
+
+  it("returns exchanged API keys for Code Mode without persisting them", async () => {
+    await expect(exchangeKnockApiKey(config)).resolves.toBe("secret-api-key");
+    await expect(exchangeKnockApiKey(config, "production")).resolves.toBe("secret-api-key");
+
+    expect(exchangeMock).toHaveBeenNthCalledWith(1);
+    expect(exchangeMock).toHaveBeenNthCalledWith(2, { environment: "production" });
   });
 
   it("preserves omitted and explicit environments through legacy toolkit binding", async () => {

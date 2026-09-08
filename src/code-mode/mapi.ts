@@ -18,7 +18,7 @@ export function registerMapiCodeMode(server: McpServer, env: Env, props: Props):
     baseUrl: getKnockControlBaseUrl(env),
     accessMode,
     description:
-      "This is the Management API: workflows, channels, templates, commits, and configuration.",
+      "This is the Knock Management API (control plane). Use it to define and configure workflows, channels, templates, broadcasts, guides, layouts, partials, commits, environments, and other account resources. Do not use it to trigger workflows or manage environment-scoped runtime data such as users, tenants, objects, preferences, schedules, subscriptions, or messages; use API code mode (`search_api`, `execute_api_read`, `execute_api_write`) for those operations.",
     resolveAuth: async (env, props) => {
       const token = await resolveKnockAccessToken(env, props);
       const headers: Record<string, string> = { Authorization: `Bearer ${token}` };

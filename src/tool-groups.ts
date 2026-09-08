@@ -16,8 +16,11 @@ export const CODE_MODE_MAPI_CATEGORY = "__codeMode:mapi" as const;
 /** Consent UI group key for Management API code mode (must match client). */
 export const CODE_MODE_MAPI_GROUP_KEY = "code-mode-mapi" as const;
 
-/** Reserved for a future public-API Code Mode group (\`search_api\` / \`execute_api\`). */
+/** Sentinel category for public API Code Mode tools — not an agent-toolkit category. */
 export const CODE_MODE_API_CATEGORY = "__codeMode:api" as const;
+
+/** Consent UI group key for public API code mode (must match client). */
+export const CODE_MODE_API_GROUP_KEY = "code-mode-api" as const;
 
 /** Sentinel category: registers \`start_knock_agent\` / \`get_knock_agent\` — not a @knocklabs/agent-toolkit category. */
 export const AGENT_CATEGORY = "__agent" as const;
@@ -32,6 +35,15 @@ export const toolGroups: ToolGroup[] = [
     description:
       "search_mapi + execute_mapi_read (+ execute_mapi_write when Manage is on) — full Knock Management API access in ~1k tokens (OpenAPI + sandboxed code)",
     categories: [CODE_MODE_MAPI_CATEGORY],
+    enabledByDefault: true,
+    hidden: true,
+  },
+  {
+    key: CODE_MODE_API_GROUP_KEY,
+    name: "API (code mode)",
+    description:
+      "search_api + execute_api_read (+ execute_api_write when Manage is on) — full Knock API data-plane access (OpenAPI + sandboxed code)",
+    categories: [CODE_MODE_API_CATEGORY],
     enabledByDefault: true,
     hidden: true,
   },
@@ -71,16 +83,20 @@ export const toolGroups: ToolGroup[] = [
   {
     key: "debug",
     name: "Debug",
-    description: "Inspect environments and view sent message logs",
+    description:
+      "Legacy MCP tools to inspect environments and sent messages (superseded by API code mode)",
     categories: ["environments", "messages"],
-    enabledByDefault: true,
+    enabledByDefault: false,
+    deprecated: true,
   },
   {
     key: "manage-data",
     name: "Manage data",
-    description: "Manage users, tenants, and object data",
+    description:
+      "Legacy MCP tools to manage users, tenants, and objects (superseded by API code mode)",
     categories: ["users", "tenants", "objects"],
     enabledByDefault: false,
+    deprecated: true,
   },
   {
     key: "documentation",
