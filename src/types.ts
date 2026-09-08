@@ -3,7 +3,9 @@ import type { KnockClientApplicationInfo } from "./knock-client-user-agent";
 export type { KnockClientApplicationInfo };
 
 /** OAuth / tool-selection props stored on the MCP Durable Object (see workers-oauth-provider). */
-export type MapiAccessMode = "read" | "read_write";
+export type CodeModeAccessMode = "read" | "read_write";
+export type MapiAccessMode = CodeModeAccessMode;
+export type ApiAccessMode = CodeModeAccessMode;
 
 export type AuthKind = "oauth" | "service_token";
 
@@ -24,6 +26,8 @@ export interface Props extends Record<string, unknown> {
   selectedGroups?: string[];
   /** Set when Management API (code mode) is enabled; defaults to read_write for legacy sessions. */
   mapiAccessMode?: MapiAccessMode;
+  /** Set when public API (code mode) is enabled; defaults to read for legacy sessions. */
+  apiAccessMode?: ApiAccessMode;
   /** OAuth MCP client (e.g. Cursor, Claude Desktop) for partner attribution on outbound API calls. */
   clientApplication?: KnockClientApplicationInfo;
   /** How this MCP session authenticated. Omitted on legacy OAuth sessions. */

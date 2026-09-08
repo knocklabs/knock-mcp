@@ -6,11 +6,18 @@ import { Toggle } from "@telegraph/toggle";
 
 import { useToolGroups, type ToolGroup } from "../hooks/useToolGroups";
 import { useAuthorizeTools } from "../hooks/useAuthorizeTools";
-import { deriveMapiAccessMode, isMapiCodeModeEnabled } from "../utils/mapiAccess";
+import {
+  deriveCodeModeAccessMode,
+  deriveMapiAccessMode,
+  isCodeModeEnabled,
+  isMapiCodeModeEnabled,
+} from "../utils/mapiAccess";
 import { KnockCard } from "./KnockCard";
 
 /** Must match `CODE_MODE_MAPI_GROUP_KEY` in src/tool-groups.ts */
 const CODE_MODE_MAPI_GROUP_KEY = "code-mode-mapi";
+/** Must match `CODE_MODE_API_GROUP_KEY` in src/tool-groups.ts */
+const CODE_MODE_API_GROUP_KEY = "code-mode-api";
 
 interface Props {
   session: string;
@@ -29,6 +36,8 @@ export function ToolSelector({ session }: Props) {
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [readResources, setReadResources] = useState(true);
   const [manageResources, setManageResources] = useState(true);
+  const [readApiData, setReadApiData] = useState(true);
+  const [manageApiData, setManageApiData] = useState(false);
   const [deprecatedOpen, setDeprecatedOpen] = useState(false);
   const [initializedDefaults, setInitializedDefaults] = useState(false);
 
@@ -56,9 +65,14 @@ export function ToolSelector({ session }: Props) {
   }
 
   function handleAuthorize() {
-    const groups = [...selected].filter((key) => key !== CODE_MODE_MAPI_GROUP_KEY);
+    const groups = [...selected].filter(
+      (key) => key !== CODE_MODE_MAPI_GROUP_KEY && key !== CODE_MODE_API_GROUP_KEY,
+    );
     if (isMapiCodeModeEnabled(readResources, manageResources)) {
       groups.push(CODE_MODE_MAPI_GROUP_KEY);
+    }
+    if (isCodeModeEnabled(readApiData, manageApiData)) {
+      groups.push(CODE_MODE_API_GROUP_KEY);
     }
     authorize(
       session,
@@ -67,11 +81,16 @@ export function ToolSelector({ session }: Props) {
       isMapiCodeModeEnabled(readResources, manageResources)
         ? deriveMapiAccessMode(readResources, manageResources)
         : undefined,
+      isCodeModeEnabled(readApiData, manageApiData)
+        ? deriveCodeModeAccessMode(readApiData, manageApiData)
+        : undefined,
     );
   }
 
   const hasAnyCapability =
-    selected.size > 0 || isMapiCodeModeEnabled(readResources, manageResources);
+    selected.size > 0 ||
+    isMapiCodeModeEnabled(readResources, manageResources) ||
+    isCodeModeEnabled(readApiData, manageApiData);
 
   const isSubmitting = authStatus === "submitting";
   const error = loadError ?? authError;
@@ -112,16 +131,28 @@ export function ToolSelector({ session }: Props) {
       {loadStatus === "ready" && (
         <Stack direction="column" gap="2" w="full">
           <CapabilityToggle
-            name="Read resources"
-            description="Inspect Knock configuration via the Management API (GET requests)"
+            name="Read Management API"
+            description="Inspect workflows, channels, templates, and account configuration (GET requests)"
             selected={readResources}
             onToggle={() => setReadResources((prev) => !prev)}
           />
           <CapabilityToggle
-            name="Manage resources"
-            description="Create and update Knock configuration via the Management API (write requests)"
+            name="Manage Management API"
+            description="Create and update workflows, channels, templates, and account configuration"
             selected={manageResources}
             onToggle={() => setManageResources((prev) => !prev)}
+          />
+          <CapabilityToggle
+            name="Read API data"
+            description="Inspect environment-scoped users, tenants, objects, messages, and preferences"
+            selected={readApiData}
+            onToggle={() => setReadApiData((prev) => !prev)}
+          />
+          <CapabilityToggle
+            name="Manage API data"
+            description="Trigger workflows and modify environment-scoped runtime data"
+            selected={manageApiData}
+            onToggle={() => setManageApiData((prev) => !prev)}
           />
 
           {mainGroups.map((group) => (

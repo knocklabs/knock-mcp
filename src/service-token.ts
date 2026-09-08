@@ -48,6 +48,7 @@ export function buildServiceTokenProps(
     clientId: SERVICE_TOKEN_CLIENT_ID,
     selectedGroups: allToolGroupKeys(),
     mapiAccessMode: "read_write",
+    apiAccessMode: "read_write",
     ...(identity ? { accountSlug: identity.accountSlug, accountName: identity.accountName } : {}),
   };
 }

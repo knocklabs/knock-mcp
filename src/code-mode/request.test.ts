@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Props } from "../types";
 import { HttpMethodError } from "./errors";
 import {
+  applyQueryParams,
   buildRequestBody,
   executeHostRequest,
   mergeHeaders,
@@ -50,6 +51,19 @@ describe("mergeHeaders", () => {
   });
 });
 
+describe("applyQueryParams", () => {
+  it("encodes array values as repeated query parameters", () => {
+    const url = new URL("https://api.knock.app/v1/messages");
+    applyQueryParams(url, {
+      status: ["delivered", "bounced"],
+      limit: 25,
+    });
+
+    expect(url.searchParams.getAll("status")).toEqual(["delivered", "bounced"]);
+    expect(url.searchParams.get("limit")).toBe("25");
+  });
+});
+
 describe("buildRequestBody", () => {
   const baseOpts = {
     method: "POST" as const,
@@ -65,10 +79,7 @@ describe("buildRequestBody", () => {
 
   it("sets content type on GET when provided", () => {
     const headers = new Headers();
-    buildRequestBody(
-      { method: "GET", path: "/v1/workflows", contentType: "text/plain" },
-      headers,
-    );
+    buildRequestBody({ method: "GET", path: "/v1/workflows", contentType: "text/plain" }, headers);
     expect(headers.get("Content-Type")).toBe("text/plain");
   });
 
@@ -81,10 +92,7 @@ describe("buildRequestBody", () => {
 
   it("passes through raw string bodies", () => {
     const headers = new Headers();
-    const body = buildRequestBody(
-      { ...baseOpts, body: "raw-payload", rawBody: true },
-      headers,
-    );
+    const body = buildRequestBody({ ...baseOpts, body: "raw-payload", rawBody: true }, headers);
     expect(body).toBe("raw-payload");
   });
 
@@ -132,6 +140,7 @@ describe("executeHostRequest", () => {
   const baseConfig: ExecuteHostRequestConfig = {
     baseUrl: "https://control.knock.app",
     accessMode: "read_write",
+    environmentTargeting: "query",
     resolveAuth: async () => ({ headers: { Authorization: "Bearer token" } }),
     env: {} as Env,
     props: {} as Props,
@@ -188,6 +197,65 @@ describe("executeHostRequest", () => {
         { ...baseConfig, accessMode: "read" },
       ),
     ).rejects.toBeInstanceOf(HttpMethodError);
+  });
+
+  it("passes a top-level public API environment to host-side auth only", async () => {
+    const resolveAuth = vi
+      .fn()
+      .mockResolvedValue({ headers: { Authorization: "Bearer environment-key" } });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ items: [] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    await executeHostRequest(
+      {
+        method: "GET",
+        path: "/v1/users",
+        environment: "production",
+      },
+      {
+        ...baseConfig,
+        baseUrl: "https://api.knock.app",
+        environmentTargeting: "request",
+        resolveAuth,
+      },
+    );
+
+    expect(resolveAuth).toHaveBeenCalledWith(
+      baseConfig.env,
+      baseConfig.props,
+      expect.objectContaining({ environment: "production" }),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.knock.app/v1/users",
+      expect.objectContaining({ method: "GET" }),
+    );
+  });
+
+  it("rejects the wrong environment targeting shape for each API", async () => {
+    await expect(
+      executeHostRequest(
+        { method: "GET", path: "/v1/users", environment: "production" },
+        baseConfig,
+      ),
+    ).rejects.toMatchObject({ message: expect.stringContaining("query.environment") });
+
+    await expect(
+      executeHostRequest(
+        {
+          method: "GET",
+          path: "/v1/users",
+          query: { environment: "production" },
+        },
+        { ...baseConfig, environmentTargeting: "request" },
+      ),
+    ).rejects.toMatchObject({ message: expect.stringContaining("top-level environment") });
   });
 
   it("surfaces network failures from fetch", async () => {

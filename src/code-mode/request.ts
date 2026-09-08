@@ -19,7 +19,9 @@ import {
 export interface CodeModeRequestOptions {
   method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   path: string;
-  query?: Record<string, string | number | boolean | undefined>;
+  /** Public API only: environment used for the host-side API-key exchange. */
+  environment?: string;
+  query?: Record<string, string | number | boolean | Array<string | number | boolean> | undefined>;
   body?: unknown;
   contentType?: string;
   rawBody?: boolean;
@@ -46,6 +48,14 @@ export function parseRequestOptions(
       new RequestValidationError({ message: `unsupported HTTP method: ${opts.method}` }),
     );
   }
+  if (
+    opts.environment !== undefined &&
+    (typeof opts.environment !== "string" || !opts.environment.trim())
+  ) {
+    return Result.err(
+      new RequestValidationError({ message: "environment must be a non-empty string" }),
+    );
+  }
   return Result.ok(opts);
 }
 
@@ -53,7 +63,14 @@ export function applyQueryParams(url: URL, query?: CodeModeRequestOptions["query
   if (!query) return;
   for (const [key, value] of Object.entries(query)) {
     if (value === undefined) continue;
-    url.searchParams.set(key, String(value));
+    url.searchParams.delete(key);
+    if (Array.isArray(value)) {
+      for (const item of value) {
+        url.searchParams.append(key, String(item));
+      }
+    } else {
+      url.searchParams.set(key, String(value));
+    }
   }
 }
 
@@ -123,7 +140,12 @@ export async function parseResponseBody(
 export interface ExecuteHostRequestConfig {
   baseUrl: string;
   accessMode: CodeModeAccessMode;
-  resolveAuth: (env: Env, props: Props) => Promise<{ headers: Record<string, string> }>;
+  environmentTargeting: "query" | "request";
+  resolveAuth: (
+    env: Env,
+    props: Props,
+    request: CodeModeRequestOptions,
+  ) => Promise<{ headers: Record<string, string> }>;
   env: Env;
   props: Props;
 }
@@ -135,11 +157,27 @@ export async function executeHostRequest(
   const result = await Result.gen(async function* () {
     const opts = yield* parseRequestOptions(args);
     yield* validateHttpMethod(config.accessMode, opts.method);
+    if (config.environmentTargeting === "query" && opts.environment !== undefined) {
+      yield* Result.err(
+        new RequestValidationError({
+          message:
+            "Management API environment targeting uses query.environment, not the top-level environment field",
+        }),
+      );
+    }
+    if (config.environmentTargeting === "request" && opts.query?.environment !== undefined) {
+      yield* Result.err(
+        new RequestValidationError({
+          message:
+            "Public API environment targeting uses the top-level environment field, not query.environment",
+        }),
+      );
+    }
     const url = yield* resolveVariantApiUrl(config.baseUrl, opts.path);
     applyQueryParams(url, opts.query);
     const { headers: authHeaders } = yield* Result.await(
       Result.tryPromise({
-        try: () => config.resolveAuth(config.env, config.props),
+        try: () => config.resolveAuth(config.env, config.props, opts),
         catch: toRequestValidationError,
       }),
     );

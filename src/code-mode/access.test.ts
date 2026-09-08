@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { deriveMapiAccessMode, isMapiCodeModeEnabled, resolveMapiAccessMode } from "./access";
+import {
+  deriveCodeModeAccessMode,
+  deriveMapiAccessMode,
+  isMapiCodeModeEnabled,
+  resolveApiAccessMode,
+  resolveMapiAccessMode,
+} from "./access";
 
 describe("isMapiCodeModeEnabled", () => {
   it("is true when either toggle is on", () => {
@@ -8,6 +14,14 @@ describe("isMapiCodeModeEnabled", () => {
     expect(isMapiCodeModeEnabled(true, false)).toBe(true);
     expect(isMapiCodeModeEnabled(false, true)).toBe(true);
     expect(isMapiCodeModeEnabled(false, false)).toBe(false);
+  });
+});
+
+describe("deriveCodeModeAccessMode", () => {
+  it("derives the same read/write model for either API", () => {
+    expect(deriveCodeModeAccessMode(false, false)).toBeUndefined();
+    expect(deriveCodeModeAccessMode(true, false)).toBe("read");
+    expect(deriveCodeModeAccessMode(false, true)).toBe("read_write");
   });
 });
 
@@ -23,6 +37,22 @@ describe("deriveMapiAccessMode", () => {
   it("returns read_write when manage is enabled", () => {
     expect(deriveMapiAccessMode(true, true)).toBe("read_write");
     expect(deriveMapiAccessMode(false, true)).toBe("read_write");
+  });
+});
+
+describe("resolveApiAccessMode", () => {
+  it("returns undefined when public API code mode is not selected", () => {
+    expect(resolveApiAccessMode(["documentation"], "read")).toBeUndefined();
+  });
+
+  it("defaults missing and invalid public API modes to read", () => {
+    expect(resolveApiAccessMode(["code-mode-api"], undefined)).toBe("read");
+    expect(resolveApiAccessMode(["code-mode-api"], null)).toBe("read");
+    expect(resolveApiAccessMode(["code-mode-api"], "admin")).toBe("read");
+  });
+
+  it("honours explicit read_write access", () => {
+    expect(resolveApiAccessMode(["code-mode-api"], "read_write")).toBe("read_write");
   });
 });
 

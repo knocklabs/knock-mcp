@@ -96,3 +96,38 @@ describe("Management API OpenAPI cache", () => {
     });
   });
 });
+
+describe("Public API OpenAPI cache", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("fetches and caches the configured public API spec by host", async () => {
+    const get = vi.fn().mockResolvedValue(null);
+    const put = vi.fn().mockResolvedValue(undefined);
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ openapi: "3.0.0", paths: {} }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getRawOpenAPISpec(
+      {
+        KNOCK_API_URL: "https://api.example.test/",
+        KNOCK_CONTROL_URL: "https://control.knock.app",
+        OAUTH_KV: { get, put, delete: vi.fn() },
+      } as unknown as Env,
+      "api",
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith("https://api.example.test/v1/openapi", {
+      headers: { Accept: "application/json" },
+    });
+    expect(get).toHaveBeenCalledWith("openapi:api:api.example.test:v2");
+    expect(put).toHaveBeenCalledWith("openapi:api:api.example.test:v2", expect.any(String), {
+      expirationTtl: 24 * 60 * 60,
+    });
+  });
+});

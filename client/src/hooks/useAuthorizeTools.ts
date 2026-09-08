@@ -3,6 +3,7 @@ import { useState } from "react";
 type Status = "idle" | "submitting" | "done" | "error";
 
 export type MapiAccessMode = "read" | "read_write";
+export type ApiAccessMode = "read" | "read_write";
 
 export function useAuthorizeTools() {
   const [status, setStatus] = useState<Status>("idle");
@@ -14,6 +15,7 @@ export function useAuthorizeTools() {
     csrfToken: string,
     selectedGroups: string[],
     mapiAccessMode?: MapiAccessMode,
+    apiAccessMode?: ApiAccessMode,
   ): Promise<void> {
     setStatus("submitting");
     setError(null);
@@ -22,7 +24,13 @@ export function useAuthorizeTools() {
       const res = await fetch("/api/authorize-tools", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session, csrfToken, selectedGroups, mapiAccessMode }),
+        body: JSON.stringify({
+          session,
+          csrfToken,
+          selectedGroups,
+          mapiAccessMode,
+          apiAccessMode,
+        }),
       });
 
       if (!res.ok) {

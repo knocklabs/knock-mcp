@@ -1,7 +1,7 @@
 import * as Sentry from "@sentry/cloudflare";
 
 import { getOrRefreshKnockToken } from "./token-store";
-import type { KnockClientApplicationInfo, MapiAccessMode, Props } from "./types";
+import type { ApiAccessMode, KnockClientApplicationInfo, MapiAccessMode, Props } from "./types";
 
 export const MISSING_SESSION_CREDENTIALS =
   "MCP session missing Knock credentials; please re-authenticate.";
@@ -44,6 +44,7 @@ export function buildOauthProps(input: {
   email?: string;
   selectedGroups: string[];
   mapiAccessMode?: MapiAccessMode;
+  apiAccessMode?: ApiAccessMode;
   clientApplication?: KnockClientApplicationInfo;
 }): Props {
   return {
@@ -53,6 +54,7 @@ export function buildOauthProps(input: {
     ...(input.userId !== undefined ? { userId: input.userId } : {}),
     ...(input.email !== undefined ? { email: input.email } : {}),
     ...(input.mapiAccessMode !== undefined ? { mapiAccessMode: input.mapiAccessMode } : {}),
+    ...(input.apiAccessMode !== undefined ? { apiAccessMode: input.apiAccessMode } : {}),
     ...(input.clientApplication ? { clientApplication: input.clientApplication } : {}),
   };
 }

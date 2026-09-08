@@ -67,6 +67,21 @@ describe("buildOauthProps", () => {
       selectedGroups: ["documentation"],
     });
   });
+
+  it("persists independent Management API and public API access modes", () => {
+    expect(
+      buildOauthProps({
+        tokenId: "oauth-1",
+        clientId: "client-1",
+        selectedGroups: ["code-mode-mapi", "code-mode-api"],
+        mapiAccessMode: "read_write",
+        apiAccessMode: "read",
+      }),
+    ).toMatchObject({
+      mapiAccessMode: "read_write",
+      apiAccessMode: "read",
+    });
+  });
 });
 
 describe("resolveKnockAccessToken", () => {

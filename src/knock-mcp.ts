@@ -5,6 +5,7 @@ import * as Sentry from "@sentry/cloudflare";
 
 import { tools, toolPermissions, type KnockToolType } from "@knocklabs/agent-toolkit/core";
 
+import { registerApiCodeMode } from "./code-mode/api";
 import { registerMapiCodeMode } from "./code-mode/mapi";
 import { registerKnockAgentTools } from "./agent/knock-agent-tools";
 import { createKnockClient } from "./knock-client";
@@ -12,6 +13,7 @@ import { getKnockControlBaseUrl } from "./knock-control-url";
 import type { Props } from "./types";
 import {
   AGENT_CATEGORY,
+  CODE_MODE_API_CATEGORY,
   CODE_MODE_MAPI_CATEGORY,
   resolveEffectiveSelectedGroups,
   resolveGroupsToCategories,
@@ -69,6 +71,10 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
 
     if (categories.includes(CODE_MODE_MAPI_CATEGORY)) {
       registerMapiCodeMode(this.server, this.env, props);
+    }
+
+    if (categories.includes(CODE_MODE_API_CATEGORY)) {
+      registerApiCodeMode(this.server, this.env, props);
     }
 
     if (categories.includes(AGENT_CATEGORY)) {
