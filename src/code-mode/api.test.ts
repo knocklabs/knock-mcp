@@ -26,7 +26,7 @@ describe("registerApiCodeMode", () => {
       {
         KNOCK_API_URL: "https://api.example.test/",
         KNOCK_CONTROL_URL: "https://control.example.test/",
-      } as Env,
+      } as unknown as Env,
       { tokenId: "token-1", clientId: "client-1" },
     );
 
@@ -51,7 +51,7 @@ describe("registerApiCodeMode", () => {
     const env = {
       KNOCK_API_URL: "https://api.knock.app",
       KNOCK_CONTROL_URL: "https://control.knock.app/",
-    } as Env;
+    } as unknown as Env;
     const props = {
       tokenId: "token-1",
       clientId: "client-1",
