@@ -10,7 +10,7 @@ export type OpenAPIVariant = "mapi" | "api";
 const PUBLIC_API_OPENAPI_URL = "https://api.knock.app/v1/openapi";
 
 const KV_TTL_SECONDS = 24 * 60 * 60;
-const VERSION = "v1";
+const VERSION = "v2";
 
 type OpenAPIEnv = Pick<Env, "OAUTH_KV"> & { KNOCK_CONTROL_URL: string };
 
@@ -155,7 +155,9 @@ const HTTP_METHOD_KEYS = new Set(["get", "post", "put", "patch", "delete", "head
  * Returns a copy of the OpenAPI document containing only GET operations per path.
  * Used by read-only code mode so search_mapi does not surface write endpoints.
  */
-export function filterOpenAPISpecToReadOnly(spec: Record<string, unknown>): Record<string, unknown> {
+export function filterOpenAPISpecToReadOnly(
+  spec: Record<string, unknown>,
+): Record<string, unknown> {
   const paths = spec.paths;
   if (!paths || typeof paths !== "object" || Array.isArray(paths)) {
     return spec;

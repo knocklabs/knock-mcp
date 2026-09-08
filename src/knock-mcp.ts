@@ -1,14 +1,13 @@
 import { McpAgent } from "agents/mcp";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import KnockMgmt from "@knocklabs/mgmt";
-import { Knock } from "@knocklabs/node";
 import * as Sentry from "@sentry/cloudflare";
 
 import { tools, toolPermissions, type KnockToolType } from "@knocklabs/agent-toolkit/core";
 
 import { registerMapiCodeMode } from "./code-mode/mapi";
 import { registerKnockAgentTools } from "./agent/knock-agent-tools";
+import { createKnockClient } from "./knock-client";
 import { getKnockControlBaseUrl } from "./knock-control-url";
 import type { Props } from "./types";
 import {
@@ -34,26 +33,6 @@ type ToolkitPermissionTier = {
 function toolkitToolIsReadOnly(category: string, toolKey: string): boolean {
   const permissions = (toolPermissions as Record<string, ToolkitPermissionTier>)[category];
   return Boolean(permissions?.read?.includes(toolKey));
-}
-
-function createKnockClient(config: { serviceToken: string; clientId: string; baseURL: string }) {
-  const defaultHeaders: Record<string, string> = {
-    "x-knock-client-id": config.clientId,
-  };
-
-  const client = new KnockMgmt({
-    serviceToken: config.serviceToken,
-    baseURL: config.baseURL,
-    defaultHeaders,
-  });
-
-  return Object.assign(client, {
-    publicApi: async (environmentSlug?: string): Promise<Knock> => {
-      const environment = environmentSlug ?? "development";
-      const { api_key } = await client.apiKeys.exchange({ environment });
-      return new Knock({ apiKey: api_key, defaultHeaders });
-    },
-  });
 }
 
 export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {

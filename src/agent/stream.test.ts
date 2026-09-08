@@ -43,16 +43,13 @@ function ndjsonResponse(lines: string[], init?: ResponseInit): Response {
 }
 
 describe("agent request bodies", () => {
-  it("builds create session params with id, stream, and context value", () => {
-    expect(
-      buildCreateSessionBody("session-1", "run-1", "Create a workflow", "development"),
-    ).toEqual({
+  it("builds create session params without implicit environment context", () => {
+    expect(buildCreateSessionBody("session-1", "run-1", "Create a workflow")).toEqual({
       id: "session-1",
       run_id: "run-1",
       prompt: "Create a workflow",
       stream: true,
       source: "mcp",
-      context: [{ type: "environment", value: "development" }],
     });
   });
 
@@ -130,8 +127,8 @@ describe("startAgentRun", () => {
       prompt: "Create a welcome workflow",
       stream: true,
       source: "mcp",
-      context: [{ type: "environment", value: "development" }],
     });
+    expect(requestBody).not.toHaveProperty("context");
     expect(requestBody.id).toEqual(expect.any(String));
     expect(requestBody.run_id).toEqual(expect.any(String));
   });
