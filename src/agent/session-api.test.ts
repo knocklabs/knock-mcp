@@ -24,14 +24,28 @@ const baseEnv = { KNOCK_CONTROL_URL: "https://control.knock.app" } as Env;
 
 describe("agent session bodies", () => {
   it("uses mcp as the agent session source", () => {
-    expect(buildCreateSessionBody("session-1", "run-1", "prompt", "development").source).toBe(
+    expect(buildCreateSessionBody("session-1", "run-1", "prompt").source).toBe(
       AGENT_SESSION_SOURCE,
     );
     expect(buildFollowUpRunBody("run-2", "prompt", "staging").source).toBe(AGENT_SESSION_SOURCE);
   });
 
   it("keeps stream true on create session body", () => {
-    expect(buildCreateSessionBody("s", "r", "p", "development").stream).toBe(true);
+    expect(buildCreateSessionBody("s", "r", "p").stream).toBe(true);
+  });
+
+  it("omits context from initial and follow-up bodies without an explicit environment", () => {
+    expect(buildCreateSessionBody("session-1", "run-1", "prompt")).not.toHaveProperty("context");
+    expect(buildFollowUpRunBody("run-2", "prompt")).not.toHaveProperty("context");
+  });
+
+  it("includes environment context when an environment is explicit", () => {
+    expect(buildCreateSessionBody("session-1", "run-1", "prompt", "staging")).toMatchObject({
+      context: [{ type: "environment", value: "staging" }],
+    });
+    expect(buildFollowUpRunBody("run-2", "prompt", "production")).toMatchObject({
+      context: [{ type: "environment", value: "production" }],
+    });
   });
 });
 

@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { resolveRefs, filterOpenAPISpecToReadOnly } from "./openapi-cache";
+import { resolveRefs, filterOpenAPISpecToReadOnly, getRawOpenAPISpec } from "./openapi-cache";
 
 describe("resolveRefs", () => {
   it("inlines internal JSON pointers", () => {
@@ -60,6 +60,39 @@ describe("filterOpenAPISpecToReadOnly", () => {
     expect(filtered.paths["/v1/c"]).toEqual({
       get: { summary: "read" },
       parameters: [],
+    });
+  });
+});
+
+describe("Management API OpenAPI cache", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("uses the refreshed v2 cache key", async () => {
+    const get = vi.fn().mockResolvedValue(null);
+    const put = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ openapi: "3.0.0", paths: {} }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    await getRawOpenAPISpec(
+      {
+        KNOCK_CONTROL_URL: "https://control.knock.app",
+        OAUTH_KV: { get, put, delete: vi.fn() },
+      } as unknown as Env,
+      "mapi",
+    );
+
+    expect(get).toHaveBeenCalledWith("openapi:mapi:control.knock.app:v2");
+    expect(put).toHaveBeenCalledWith("openapi:mapi:control.knock.app:v2", expect.any(String), {
+      expirationTtl: 24 * 60 * 60,
     });
   });
 });

@@ -41,15 +41,15 @@ export interface PreparedAgentRun {
   body: Record<string, unknown>;
 }
 
-export function buildAgentContext(environment: string): AgentContextEntry[] {
-  return [{ type: "environment", value: environment }];
+export function buildAgentContext(environment?: string): AgentContextEntry[] {
+  return environment === undefined ? [] : [{ type: "environment", value: environment }];
 }
 
 export function buildCreateSessionBody(
   sessionId: string,
   runId: string,
   prompt: string,
-  environment: string,
+  environment?: string,
 ): Record<string, unknown> {
   return {
     id: sessionId,
@@ -57,20 +57,20 @@ export function buildCreateSessionBody(
     prompt,
     stream: true,
     source: AGENT_SESSION_SOURCE,
-    context: buildAgentContext(environment),
+    ...(environment === undefined ? {} : { context: buildAgentContext(environment) }),
   };
 }
 
 export function buildFollowUpRunBody(
   runId: string,
   prompt: string,
-  environment: string,
+  environment?: string,
 ): Record<string, unknown> {
   return {
     run_id: runId,
     prompt,
     source: AGENT_SESSION_SOURCE,
-    context: buildAgentContext(environment),
+    ...(environment === undefined ? {} : { context: buildAgentContext(environment) }),
   };
 }
 
@@ -164,12 +164,13 @@ export function prepareAgentRun(
     return Result.err(promptResult.error);
   }
 
-  const environmentResult = validateAgentEnvironment(
-    input.environment ?? "development",
-    errorContext,
-  );
-  if (Result.isError(environmentResult)) {
-    return Result.err(environmentResult.error);
+  let environment: string | undefined;
+  if (input.environment !== undefined) {
+    const environmentResult = validateAgentEnvironment(input.environment, errorContext);
+    if (Result.isError(environmentResult)) {
+      return Result.err(environmentResult.error);
+    }
+    environment = environmentResult.value;
   }
 
   const isFollowUp = Boolean(input.sessionId);
@@ -177,8 +178,8 @@ export function prepareAgentRun(
     ? `${baseUrl}/agent/sessions/${sessionId}/runs`
     : `${baseUrl}/agent/sessions`;
   const body = isFollowUp
-    ? buildFollowUpRunBody(runId, promptResult.value, environmentResult.value)
-    : buildCreateSessionBody(sessionId, runId, promptResult.value, environmentResult.value);
+    ? buildFollowUpRunBody(runId, promptResult.value, environment)
+    : buildCreateSessionBody(sessionId, runId, promptResult.value, environment);
 
   return Result.ok({
     baseUrl,

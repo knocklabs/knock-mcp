@@ -3,7 +3,11 @@ import { DynamicWorkerExecutor, resolveProvider } from "@cloudflare/codemode";
 import { z } from "zod";
 
 import type { Props } from "../types";
-import { filterOpenAPISpecToReadOnly, type OpenAPIVariant, getResolvedOpenAPISpec } from "../openapi-cache";
+import {
+  filterOpenAPISpecToReadOnly,
+  type OpenAPIVariant,
+  getResolvedOpenAPISpec,
+} from "../openapi-cache";
 import { runCodeModeExecution } from "./execution";
 import { runCodeModeTool } from "./mcp-response";
 import { executeHostRequest } from "./request";
@@ -139,8 +143,14 @@ export function registerCodeModeVariant(
   props: Props,
   config: CodeModeVariantConfig,
 ): void {
-  const { namespace, variant, baseUrl, description, resolveAuth, accessMode = "read_write" } =
-    config;
+  const {
+    namespace,
+    variant,
+    baseUrl,
+    description,
+    resolveAuth,
+    accessMode = "read_write",
+  } = config;
   const v = variant;
   const searchName = `search_${v}`;
   const executeReadName = `execute_${v}_read`;
@@ -252,7 +262,7 @@ async () => {
 
 ${accessNote}
 
-Use this tool (Code Mode: \`${executeReadName}\`) for **read-only** \`${variantLabel}\` calls at ${baseUrl} via \`${namespace}.request({ method: "GET", ... })\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host.${writesEnabled ? ` For create/update/delete, use \`${executeWriteName}\` instead.` : ""}
+Use this tool (Code Mode: \`${executeReadName}\`) for **read-only** \`${variantLabel}\` calls at ${baseUrl} via \`${namespace}.request({ method: "GET", ... })\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host. Omit \`environment\` to use the account's default environment; callers can explicitly target another environment by adding it to \`query\`.${writesEnabled ? ` For create/update/delete, use \`${executeWriteName}\` instead.` : ""}
 
 ${REQUEST_RESPONSE_GUIDE(namespace)}
 
@@ -265,7 +275,6 @@ async () => {
   const res = await ${namespace}.request({
     method: "GET",
     path: "/v1/workflows",
-    query: { environment: "development" },
   });
   return { status: res.status, entries: res.result.entries, page_info: res.result.page_info };
 }
@@ -294,7 +303,7 @@ async () => {
 
 ${accessNote}
 
-Use this tool (Code Mode: \`${executeWriteName}\`) for **write** \`${variantLabel}\` calls at ${baseUrl} via \`${namespace}.request({ method: "POST"|"PUT"|"PATCH"|"DELETE", ... })\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host. For \`GET\`, use \`${executeReadName}\` instead.
+Use this tool (Code Mode: \`${executeWriteName}\`) for **write** \`${variantLabel}\` calls at ${baseUrl} via \`${namespace}.request({ method: "POST"|"PUT"|"PATCH"|"DELETE", ... })\`. Use \`${searchName}\` first to find paths and request shapes. Auth headers are added on the host. Omit \`environment\` to use the account's default environment; callers can explicitly target another environment by adding it to \`query\`. For \`GET\`, use \`${executeReadName}\` instead.
 
 ${REQUEST_RESPONSE_GUIDE(namespace)}
 
@@ -307,7 +316,6 @@ async () => {
   const res = await ${namespace}.request({
     method: "PUT",
     path: "/v1/workflows/welcome",
-    query: { environment: "development" },
     body: { name: "Welcome", steps: [] },
   });
   return { status: res.status, result: res.result };
