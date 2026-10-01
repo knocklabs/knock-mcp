@@ -10,10 +10,7 @@ type PostHogEnv = {
   POSTHOG_PROJECT_TOKEN?: string;
   POSTHOG_HOST?: string;
 };
-type PostHogIdentity = Pick<
-  Props,
-  "accountName" | "accountSlug" | "authKind" | "email" | "userId"
->;
+type PostHogIdentity = Pick<Props, "accountName" | "accountSlug" | "authKind" | "email" | "userId">;
 
 export function instrumentPostHogMcp(
   server: McpServer,
