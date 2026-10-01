@@ -20,12 +20,12 @@ describe("instrumentPostHogMcp", () => {
     vi.clearAllMocks();
   });
 
-  it("does not instrument the server without a project API key", () => {
+  it("does not instrument the server without a project token", () => {
     const server = new McpServer({ name: "test", version: "1.0.0" });
 
     const result = instrumentPostHogMcp(
       server,
-      { POSTHOG_PROJECT_API_KEY: undefined, POSTHOG_HOST: "https://us.i.posthog.com" },
+      { POSTHOG_PROJECT_TOKEN: undefined, POSTHOG_HOST: "https://us.i.posthog.com" },
       { userId: "user_1", email: "user@example.com" },
       vi.fn(),
     );
@@ -41,7 +41,7 @@ describe("instrumentPostHogMcp", () => {
 
     const client = instrumentPostHogMcp(
       server,
-      { POSTHOG_PROJECT_API_KEY: "phc_test", POSTHOG_HOST: "https://eu.i.posthog.com" },
+      { POSTHOG_PROJECT_TOKEN: "phc_test", POSTHOG_HOST: "https://eu.i.posthog.com" },
       { userId: "user_1", email: "user@example.com" },
       waitUntil,
     );
@@ -54,9 +54,43 @@ describe("instrumentPostHogMcp", () => {
       server,
       client,
       expect.objectContaining({
+        captureModel: true,
+        enableConversationId: true,
+        enableExceptionAutocapture: false,
         identify: {
           distinctId: "user_1",
-          properties: { email: "user@example.com" },
+          properties: { authKind: "oauth", email: "user@example.com" },
+        },
+      }),
+    );
+  });
+
+  it("groups service-token analytics by Knock account", () => {
+    const server = new McpServer({ name: "test", version: "1.0.0" });
+
+    const client = instrumentPostHogMcp(
+      server,
+      { POSTHOG_PROJECT_TOKEN: "phc_test", POSTHOG_HOST: undefined },
+      {
+        authKind: "service_token",
+        accountSlug: "acme",
+        accountName: "Acme, Inc.",
+      },
+      vi.fn(),
+    );
+
+    expect(instrument).toHaveBeenCalledWith(
+      server,
+      client,
+      expect.objectContaining({
+        identify: {
+          distinctId: "account:acme",
+          properties: {
+            authKind: "service_token",
+            accountSlug: "acme",
+            accountName: "Acme, Inc.",
+          },
+          groups: { account: "acme" },
         },
       }),
     );

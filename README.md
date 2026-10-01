@@ -127,7 +127,7 @@ cp .dev.vars.example .dev.vars
 | `KNOCK_CONTROL_URL` | Management API control plane (e.g. `https://control.knock.app`) — used for Code Mode OpenAPI fetch and `execute_mapi_read` / `execute_mapi_write` |
 | `COOKIE_ENCRYPTION_KEY` | Random 32-byte hex string — generate with `openssl rand -hex 32` |
 | `DEV_ORIGIN` | Set to `http://localhost:8788` for local dev only |
-| `POSTHOG_PROJECT_API_KEY` | PostHog project API key (`phc_…`) for MCP analytics; leave unset to disable analytics |
+| `POSTHOG_PROJECT_TOKEN` | PostHog project token (`phc_…`) for MCP analytics; leave unset to disable analytics |
 | `POSTHOG_HOST` | PostHog ingestion host; defaults to `https://us.i.posthog.com` (use `https://eu.i.posthog.com` for EU projects) |
 | `SENTRY_DSN` | Sentry DSN for error reporting; leave blank to disable |
 | `INFRA_ENV` | Tag attached to Sentry events (`development`, `staging`, `production`) |
@@ -151,18 +151,23 @@ Use a random 32-byte hex value (e.g. `openssl rand -hex 32`).
 wrangler secret put SENTRY_DSN
 ```
 
-**`POSTHOG_PROJECT_API_KEY` should be a Wrangler secret**. When configured, the server
-records MCP initialization, tool-listing, and tool-call events and attributes them to the
-authenticated Knock user:
+**`POSTHOG_PROJECT_TOKEN` should be a Wrangler secret**. When configured, the server
+records MCP initialization, listing, read, and tool-call events (including error state) and
+attributes them to the authenticated Knock user or service-token account:
 
 ```bash
-wrangler secret put POSTHOG_PROJECT_API_KEY
+wrangler secret put POSTHOG_PROJECT_TOKEN
 ```
 
-MCP analytics is disabled when the key is absent. The PostHog SDK sanitizes sensitive keys
-and binary content before sending tool parameters and responses.
+MCP analytics is disabled when the token is absent. Following the PostHog MCP Analytics
+defaults, tool schemas also capture agent intent and model and support conversation
+correlation. Detailed exception autocapture is disabled because Sentry is the source of truth
+for errors. The SDK redacts sensitive-key values and binary content, but ordinary personal
+data in tool parameters and responses is not automatically removed; use PostHog's
+[`beforeSend` guidance](https://posthog.com/docs/mcp-analytics/privacy) if your deployment
+requires stricter payload filtering.
 
-The generated [`worker-configuration.d.ts`](worker-configuration.d.ts) (from `wrangler types`) types `Env` including secrets such as `COOKIE_ENCRYPTION_KEY` and `POSTHOG_PROJECT_API_KEY`, plus optional `.dev.vars` entries. See [`src/env.d.ts`](src/env.d.ts) for notes. You do not need a production `DEV_ORIGIN` unless you use the same origin-rewrite pattern as local dev.
+The generated [`worker-configuration.d.ts`](worker-configuration.d.ts) (from `wrangler types`) types `Env` including secrets such as `COOKIE_ENCRYPTION_KEY` and `POSTHOG_PROJECT_TOKEN`, plus optional `.dev.vars` entries. See [`src/env.d.ts`](src/env.d.ts) for notes. You do not need a production `DEV_ORIGIN` unless you use the same origin-rewrite pattern as local dev.
 
 ### 4. Run locally
 
