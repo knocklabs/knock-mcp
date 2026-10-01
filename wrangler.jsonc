@@ -45,7 +45,8 @@
     "KNOCK_AUTH_URL": "https://signin.knock.app",
     "KNOCK_DASHBOARD_URL": "https://dashboard.knock.app",
     "INFRA_ENV": "production",
-    "KNOCK_CONTROL_URL": "https://control.knock.app"
+    "KNOCK_CONTROL_URL": "https://control.knock.app",
+    "POSTHOG_HOST": "https://us.i.posthog.com"
   },
   "observability": {
     "enabled": true

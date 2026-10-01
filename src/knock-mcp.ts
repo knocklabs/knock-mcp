@@ -22,6 +22,7 @@ import {
   requireSessionAuth,
   resolveKnockAccessToken,
 } from "./session-auth";
+import { instrumentPostHogMcp } from "./posthog";
 
 type ToolkitPermissionTier = {
   read?: string[];
@@ -51,6 +52,8 @@ export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
     }
 
     applySessionSentryContext(props);
+
+    instrumentPostHogMcp(this.server, this.env, props, (promise) => this.ctx.waitUntil(promise));
 
     const getClient = async () => {
       const accessToken = await resolveKnockAccessToken(this.env, props);

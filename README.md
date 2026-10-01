@@ -84,7 +84,7 @@ If you need to run the MCP server yourself (e.g. for development or custom deplo
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org) 18+
+- [Node.js](https://nodejs.org) 20.20+ or 22.22+
 - A [Cloudflare account](https://dash.cloudflare.com/sign-up) with Workers enabled
 - A Knock account with AuthKit configured
 
@@ -127,12 +127,15 @@ cp .dev.vars.example .dev.vars
 | `KNOCK_CONTROL_URL` | Management API control plane (e.g. `https://control.knock.app`) — used for Code Mode OpenAPI fetch and `execute_mapi_read` / `execute_mapi_write` |
 | `COOKIE_ENCRYPTION_KEY` | Random 32-byte hex string — generate with `openssl rand -hex 32` |
 | `DEV_ORIGIN` | Set to `http://localhost:8788` for local dev only |
+| `POSTHOG_PROJECT_TOKEN` | PostHog project token (`phc_…`) for MCP analytics; leave unset to disable analytics |
+| `POSTHOG_HOST` | PostHog ingestion host; defaults to `https://us.i.posthog.com` (use `https://eu.i.posthog.com` for EU projects) |
 | `SENTRY_DSN` | Sentry DSN for error reporting; leave blank to disable |
 | `INFRA_ENV` | Tag attached to Sentry events (`development`, `staging`, `production`) |
 
 **Dynamic Worker loader (Code Mode):** this Worker declares a [`worker_loaders`](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) binding named `LOADER` in [`wrangler.jsonc`](wrangler.jsonc) for [`@cloudflare/codemode`](https://github.com/cloudflare/agents/tree/main/packages/codemode). Use a current `compatibility_date` and a recent `wrangler` / Workers runtime.
 
-Production URLs are set in [`wrangler.jsonc`](wrangler.jsonc) under `vars` (`KNOCK_AUTH_URL`, `KNOCK_DASHBOARD_URL`). Override them with secrets only if you need per-environment values.
+Production URLs are set in [`wrangler.jsonc`](wrangler.jsonc) under `vars`. Override them
+for other deployment environments as needed.
 
 **`COOKIE_ENCRYPTION_KEY` must be a Wrangler secret** — do not add it to `vars`. Cloudflare rejects the same binding name as both a var and a secret.
 
@@ -140,15 +143,31 @@ Production URLs are set in [`wrangler.jsonc`](wrangler.jsonc) under `vars` (`KNO
 wrangler secret put COOKIE_ENCRYPTION_KEY
 ```
 
+Use a random 32-byte hex value (e.g. `openssl rand -hex 32`).
+
 **`SENTRY_DSN` should be a Wrangler secret** in any environment where errors are reported:
 
 ```bash
 wrangler secret put SENTRY_DSN
 ```
 
-Use a random 32-byte hex value (e.g. `openssl rand -hex 32`). After changing config, deploy so the Worker no longer declares a conflicting var.
+**`POSTHOG_PROJECT_TOKEN` should be a Wrangler secret**. When configured, the server
+records MCP initialization, listing, read, and tool-call events (including error state) and
+attributes them to the authenticated Knock user or service-token account:
 
-The generated [`worker-configuration.d.ts`](worker-configuration.d.ts) (from `wrangler types`) types `Env` including secrets such as `COOKIE_ENCRYPTION_KEY` and optional `.dev.vars` entries. See [`src/env.d.ts`](src/env.d.ts) for notes. You do not need a production `DEV_ORIGIN` unless you use the same origin-rewrite pattern as local dev.
+```bash
+wrangler secret put POSTHOG_PROJECT_TOKEN
+```
+
+MCP analytics is disabled when the token is absent. Following the PostHog MCP Analytics
+defaults, tool schemas also capture agent intent and model and support conversation
+correlation. Detailed exception autocapture is disabled because Sentry is the source of truth
+for errors. The SDK redacts sensitive-key values and binary content, but ordinary personal
+data in tool parameters and responses is not automatically removed; use PostHog's
+[`beforeSend` guidance](https://posthog.com/docs/mcp-analytics/privacy) if your deployment
+requires stricter payload filtering.
+
+The generated [`worker-configuration.d.ts`](worker-configuration.d.ts) (from `wrangler types`) types `Env` including secrets such as `COOKIE_ENCRYPTION_KEY` and `POSTHOG_PROJECT_TOKEN`, plus optional `.dev.vars` entries. See [`src/env.d.ts`](src/env.d.ts) for notes. You do not need a production `DEV_ORIGIN` unless you use the same origin-rewrite pattern as local dev.
 
 ### 4. Run locally
 
