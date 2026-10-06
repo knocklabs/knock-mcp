@@ -13,6 +13,10 @@
     {
       "new_sqlite_classes": ["KnockMCP"],
       "tag": "v1"
+    },
+    {
+      "new_classes": ["KnockTokenLock"],
+      "tag": "v2"
     }
   ],
   "durable_objects": {
@@ -20,6 +24,10 @@
       {
         "class_name": "KnockMCP",
         "name": "MCP_OBJECT"
+      },
+      {
+        "class_name": "KnockTokenLock",
+        "name": "KNOCK_TOKEN_LOCK"
       }
     ]
   },
