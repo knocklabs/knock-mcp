@@ -7,7 +7,8 @@ import * as Sentry from "@sentry/cloudflare";
 import { toolGroups, resolveEffectiveSelectedGroups } from "./tool-groups";
 import { resolveMapiAccessMode } from "./code-mode/access";
 import { buildOauthProps } from "./session-auth";
-import { storeKnockTokens } from "./token-store";
+import { activateKnockTokens, storePendingKnockTokens } from "./token-store";
+import { nowSeconds } from "./time";
 import {
   addApprovedClient,
   bindStateToSession,
@@ -360,7 +361,7 @@ app.get("/callback", async (c) => {
   // Decode the JWT to extract the user ID, email, and token expiry
   let userId: string | undefined;
   let email: string | undefined;
-  let expiresAt: number = Math.floor(Date.now() / 1000) + 300; // default 5 minutes
+  let expiresAt: number = nowSeconds() + 300; // default 5 minutes
   try {
     const claims = jose.decodeJwt(accessToken);
     userId = typeof claims.sub === "string" ? claims.sub : undefined;
@@ -383,9 +384,10 @@ app.get("/callback", async (c) => {
     );
   }
 
-  // Persist the Knock tokens in KV so they can be refreshed transparently on expiry
+  // Persist the Knock tokens in KV so they can be refreshed transparently on expiry.
+  // The record is only kept for the consent flow until a grant refers to it.
   const tokenId = crypto.randomUUID();
-  await storeKnockTokens(c.env, tokenId, {
+  await storePendingKnockTokens(c.env, tokenId, {
     accessToken,
     refreshToken,
     expiresAt,
@@ -531,7 +533,7 @@ app.post("/api/authorize-tools", async (c) => {
       props: buildOauthProps({
         tokenId,
         clientId,
-        issuedAt: Math.floor(Date.now() / 1000),
+        issuedAt: nowSeconds(),
         userId,
         email,
         selectedGroups: effectiveGroups,
@@ -539,6 +541,8 @@ app.post("/api/authorize-tools", async (c) => {
         clientApplication,
       }),
     });
+
+    await activateKnockTokens(c.env, tokenId);
 
     return c.json({ redirectTo });
   } catch (error: unknown) {

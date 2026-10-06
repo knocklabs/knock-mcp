@@ -61,7 +61,7 @@ export function buildOauthProps(input: {
 
 /** Resolve the Knock Management API bearer token for this MCP session. */
 export async function resolveKnockAccessToken(
-  env: Pick<Env, "OAUTH_KV">,
+  env: Pick<Env, "OAUTH_KV" | "KNOCK_TOKEN_LOCK">,
   props: SessionCredentialFields,
 ): Promise<string> {
   const auth = requireSessionAuth(props);

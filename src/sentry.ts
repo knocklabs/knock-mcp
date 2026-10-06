@@ -47,11 +47,14 @@ type OAuthProviderError = Parameters<NonNullable<OAuthProviderOptions["onError"]
  * Since 1.x every provider error carries `internal`, so its mere presence no
  * longer marks an error as unexpected. Allowlist: 5xx / `server_error`, plus
  * CIMD document fetch failures (which reach the wire as a generic
- * `invalid_client`). 5xx from our own `tokenExchangeCallback` are excluded:
- * they signal a transient upstream outage that `token-store` already reports.
+ * `invalid_client`). The expected 503 for an upstream outage is excluded; the
+ * upstream failure itself is reported where it happens.
  */
 export function shouldCaptureOAuthProviderError(error: OAuthProviderError): boolean {
-  if (error.internal.category === "token-exchange-callback") {
+  if (
+    error.internal.category === "token-exchange-callback" &&
+    error.internal.reason === "upstream_unavailable"
+  ) {
     return false;
   }
   return (

@@ -1,56 +1,69 @@
 import { OAuthError } from "@cloudflare/workers-oauth-provider";
 import type { TokenExchangeCallbackOptions } from "@cloudflare/workers-oauth-provider";
 
-import { NEW_GRANT_GRACE_SECONDS } from "./session-lifetimes";
 import { sessionAuthFromProps } from "./session-auth";
+import { MCP_GRANT_MAX_AGE_SECONDS } from "./session-lifetimes";
+import { nowSeconds } from "./time";
 import { getOrRefreshKnockToken, hasKnockTokens, KnockSessionError } from "./token-store";
 import type { Props } from "./types";
 
-function isRecentGrant(props: Pick<Props, "issuedAt"> | null | undefined): boolean {
-  if (typeof props?.issuedAt !== "number") return false;
-  return Math.floor(Date.now() / 1000) - props.issuedAt < NEW_GRANT_GRACE_SECONDS;
-}
+const DEAD_SESSION_DESCRIPTION = "Knock session expired; please re-authenticate.";
 
 /**
- * RFC 6750 challenge for an MCP access token that is still valid at the OAuth
- * layer but whose upstream Knock session is gone. Mirrors the provider's own
- * `invalid_token` response so clients react to it the same way.
+ * KV reads can lag a recent write by up to a minute. For this long after a grant
+ * is issued a missing `knock-token:` record is treated as not yet visible
+ * instead of as a dead session, because declaring it dead revokes the grant.
  */
-export function unauthorizedSessionResponse(request: Request, description: string): Response {
-  const url = new URL(request.url);
-  const resourceMetadataUrl = `${url.origin}/.well-known/oauth-protected-resource${url.pathname}`;
-  return new Response(JSON.stringify({ error: "invalid_token", error_description: description }), {
-    status: 401,
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store",
-      "WWW-Authenticate": `Bearer realm="OAuth", resource_metadata="${resourceMetadataUrl}", error="invalid_token", error_description="${description}"`,
-    },
-  });
+const NEW_GRANT_GRACE_SECONDS = 120;
+
+function ageSeconds(props: Pick<Props, "issuedAt"> | undefined): number | undefined {
+  return typeof props?.issuedAt === "number" ? nowSeconds() - props.issuedAt : undefined;
+}
+
+function isNewGrant(props: Pick<Props, "issuedAt"> | undefined): boolean {
+  const age = ageSeconds(props);
+  return age !== undefined && age < NEW_GRANT_GRACE_SECONDS;
+}
+
+function isExpiredGrant(props: Pick<Props, "issuedAt"> | undefined): boolean {
+  const age = ageSeconds(props);
+  return age !== undefined && age > MCP_GRANT_MAX_AGE_SECONDS;
 }
 
 type ApiHandler = {
-  fetch(request: Request, env: Env, ctx: ExecutionContext): Response | Promise<Response>;
+  fetch(request: Request, env: Env, ctx: ExecutionContext<Props | undefined>): Promise<Response>;
 };
 
 /**
  * Answers 401 before reaching the MCP Durable Object when an OAuth session's
  * upstream Knock tokens no longer exist. Without this the failure surfaces as
- * a tool error on a valid MCP token and the client never re-authorizes.
+ * a tool error on a valid MCP token and the client never re-authorizes. The
+ * challenge mirrors the provider's own `invalid_token` response.
  */
-export function withKnockSessionGuard(handler: ApiHandler): ApiHandler {
+export function withKnockSessionGuard(
+  handler: ApiHandler,
+  options: { resourceMetadataUrl: string },
+): ApiHandler {
+  const challenge = `Bearer realm="OAuth", resource_metadata="${options.resourceMetadataUrl}", error="invalid_token", error_description="${DEAD_SESSION_DESCRIPTION}"`;
+
   return {
     async fetch(request, env, ctx) {
-      const props = (ctx as { props?: Props }).props;
-      const auth = sessionAuthFromProps(props);
+      const auth = sessionAuthFromProps(ctx.props);
       if (
         auth?.kind === "oauth" &&
-        !isRecentGrant(props) &&
+        !isNewGrant(ctx.props) &&
         !(await hasKnockTokens(env, auth.tokenId))
       ) {
-        return unauthorizedSessionResponse(
-          request,
-          "Knock session expired; please re-authenticate.",
+        return new Response(
+          JSON.stringify({ error: "invalid_token", error_description: DEAD_SESSION_DESCRIPTION }),
+          {
+            status: 401,
+            headers: {
+              "Content-Type": "application/json",
+              "Cache-Control": "no-store",
+              "WWW-Authenticate": challenge,
+            },
+          },
         );
       }
       return handler.fetch(request, env, ctx);
@@ -75,13 +88,20 @@ export async function ensureUpstreamSession(
   const auth = sessionAuthFromProps(props);
   if (auth?.kind !== "oauth") return;
 
+  if (isExpiredGrant(props)) {
+    throw new OAuthError("invalid_grant", {
+      description: DEAD_SESSION_DESCRIPTION,
+      internal: { category: "token-exchange-callback", reason: "grant_max_age_exceeded" },
+    });
+  }
+
   try {
     await getOrRefreshKnockToken(options.env, auth.tokenId, { renewTtl: true });
   } catch (error) {
     if (!(error instanceof KnockSessionError)) throw error;
 
     const retryLater =
-      error.kind === "transient" || (error.kind === "missing" && isRecentGrant(props));
+      error.kind === "transient" || (error.kind === "missing" && isNewGrant(props));
     if (retryLater) {
       throw new OAuthError("temporarily_unavailable", {
         description: "Knock session is temporarily unavailable; retry shortly.",
@@ -92,7 +112,7 @@ export async function ensureUpstreamSession(
     }
 
     throw new OAuthError("invalid_grant", {
-      description: "Knock session expired; please re-authenticate.",
+      description: DEAD_SESSION_DESCRIPTION,
       internal: { category: "token-exchange-callback", reason: "upstream_session_dead" },
     });
   }

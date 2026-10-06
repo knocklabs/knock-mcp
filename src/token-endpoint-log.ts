@@ -1,3 +1,5 @@
+const MAX_FIELD_LENGTH = 200;
+
 type TokenFailureLog = {
   status: number;
   error?: string;
@@ -10,10 +12,15 @@ type TokenFailureLog = {
   colo?: string;
 };
 
+/** `/token` is unauthenticated, so every field logged from it is clipped. */
+function clip(value: string | null | undefined): string | undefined {
+  return value ? value.slice(0, MAX_FIELD_LENGTH) : undefined;
+}
+
 /** Refresh tokens are `userId:grantId:secret`; only the grant id is safe to log. */
 function grantIdFromRefreshToken(refreshToken: string | null): string | undefined {
   const parts = refreshToken?.split(":");
-  return parts?.length === 3 ? parts[1] : undefined;
+  return parts?.length === 3 ? clip(parts[1]) : undefined;
 }
 
 async function readFormBody(request: Request): Promise<URLSearchParams | null> {
@@ -48,15 +55,34 @@ export async function logTokenEndpointFailure(request: Request, response: Respon
 
   const entry: TokenFailureLog = {
     status: response.status,
-    error: body.error,
-    errorDescription: body.error_description,
-    grantType: form?.get("grant_type") ?? undefined,
-    clientId: form?.get("client_id") ?? undefined,
+    error: clip(body.error),
+    errorDescription: clip(body.error_description),
+    grantType: clip(form?.get("grant_type")),
+    clientId: clip(form?.get("client_id")),
     grantId: grantIdFromRefreshToken(form?.get("refresh_token") ?? null),
-    resource: form?.get("resource") ?? undefined,
-    userAgent: request.headers.get("user-agent") ?? undefined,
-    colo: (request as Request & { cf?: { colo?: string } }).cf?.colo,
+    resource: clip(form?.get("resource")),
+    userAgent: clip(request.headers.get("user-agent")),
+    colo: (request.cf as { colo?: string } | undefined)?.colo,
   };
 
   console.warn("token-endpoint-failure", JSON.stringify(entry));
+}
+
+type FetchHandler<E> = (request: Request, env: E, ctx: ExecutionContext) => Promise<Response>;
+
+/** Logs every failed POST to `tokenPath` served by `handler`. */
+export function withTokenEndpointLogging<E>(
+  tokenPath: string,
+  handler: FetchHandler<E>,
+): FetchHandler<E> {
+  return async (request, env, ctx) => {
+    const isTokenPost = request.method === "POST" && new URL(request.url).pathname === tokenPath;
+    const logRequest = isTokenPost ? request.clone() : null;
+    const response = await handler(request, env, ctx);
+
+    if (logRequest && response.status >= 400) {
+      ctx.waitUntil(logTokenEndpointFailure(logRequest, response.clone()));
+    }
+    return response;
+  };
 }

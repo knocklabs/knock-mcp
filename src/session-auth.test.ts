@@ -72,24 +72,30 @@ describe("buildOauthProps", () => {
 describe("resolveKnockAccessToken", () => {
   it("returns a service token without touching KV", async () => {
     const kv = memoryKv();
-    const token = await resolveKnockAccessToken({ OAUTH_KV: kv } as Pick<Env, "OAUTH_KV">, {
-      serviceToken: "knock_st_direct",
-    });
+    const token = await resolveKnockAccessToken(
+      { OAUTH_KV: kv } as Pick<Env, "OAUTH_KV" | "KNOCK_TOKEN_LOCK">,
+      {
+        serviceToken: "knock_st_direct",
+      },
+    );
     expect(token).toBe("knock_st_direct");
   });
 
   it("prefers a service token over tokenId", async () => {
     const kv = memoryKv();
-    const token = await resolveKnockAccessToken({ OAUTH_KV: kv } as Pick<Env, "OAUTH_KV">, {
-      serviceToken: "knock_st_direct",
-      tokenId: "should-not-be-used",
-    });
+    const token = await resolveKnockAccessToken(
+      { OAUTH_KV: kv } as Pick<Env, "OAUTH_KV" | "KNOCK_TOKEN_LOCK">,
+      {
+        serviceToken: "knock_st_direct",
+        tokenId: "should-not-be-used",
+      },
+    );
     expect(token).toBe("knock_st_direct");
   });
 
   it("refreshes OAuth tokens via tokenId when no service token is set", async () => {
     const kv = memoryKv();
-    const env = { OAUTH_KV: kv } as Pick<Env, "OAUTH_KV">;
+    const env = { OAUTH_KV: kv } as Pick<Env, "OAUTH_KV" | "KNOCK_TOKEN_LOCK">;
     await storeKnockTokens(env, "oauth-1", {
       accessToken: "oauth-access",
       refreshToken: "refresh",
@@ -106,7 +112,7 @@ describe("resolveKnockAccessToken", () => {
   it("throws when neither service token nor tokenId is present", async () => {
     const kv = memoryKv();
     await expect(
-      resolveKnockAccessToken({ OAUTH_KV: kv } as Pick<Env, "OAUTH_KV">, {}),
+      resolveKnockAccessToken({ OAUTH_KV: kv } as Pick<Env, "OAUTH_KV" | "KNOCK_TOKEN_LOCK">, {}),
     ).rejects.toThrow(MISSING_SESSION_CREDENTIALS);
   });
 });

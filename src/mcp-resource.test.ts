@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   canonicalMcpResource,
   canonicalizeMcpResource,
+  protectedResourceMetadataUrl,
   withCanonicalMcpResource,
 } from "./mcp-resource";
 
@@ -12,6 +13,20 @@ describe("canonicalMcpResource", () => {
   it("appends /mcp and strips a trailing slash on the origin", () => {
     expect(canonicalMcpResource("https://mcp.knock.app")).toBe(canonical);
     expect(canonicalMcpResource("https://mcp.knock.app/")).toBe(canonical);
+  });
+});
+
+describe("protectedResourceMetadataUrl", () => {
+  it("places the resource path after the well-known prefix", () => {
+    expect(protectedResourceMetadataUrl(canonical)).toBe(
+      "https://mcp.knock.app/.well-known/oauth-protected-resource/mcp",
+    );
+  });
+
+  it("uses the bare well-known URL for an origin-only resource", () => {
+    expect(protectedResourceMetadataUrl("https://mcp.knock.app")).toBe(
+      "https://mcp.knock.app/.well-known/oauth-protected-resource",
+    );
   });
 });
 
