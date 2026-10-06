@@ -57,6 +57,17 @@ When connecting, you choose exactly which tool groups to enable. **By default**,
 
 Interactive clients should use **OAuth 2.1 + PKCE** via Knock's AuthKit. When you first connect, you'll be directed to authorize the connection and select which capabilities to grant. The MCP server exchanges tokens with Knock's API on your behalf.
 
+### OAuth session lifetimes
+
+Lifetimes live in [`src/session-lifetimes.ts`](src/session-lifetimes.ts).
+
+- The MCP access token lasts 12 hours. Each refresh rotates the refresh token.
+- A grant starts with a 90 day refresh token and slides forward 90 days on every refresh, so it only expires after 90 days without use.
+- Every authorization creates its own grant, so signing in from a second device or client does not sign out the first.
+- On each MCP refresh the server also checks the Knock session behind the grant. If that session is gone, the refresh fails with `invalid_grant`, the provider revokes the grant, and the client starts a new authorization. If Knock is briefly unavailable, the refresh returns `503 temporarily_unavailable` and the client keeps its tokens.
+- A request on a valid MCP token whose Knock session no longer exists gets `401 invalid_token` with the RFC 9728 challenge instead of a tool error, so clients re-authorize on their own.
+- Failed `/token` requests log a `token-endpoint-failure` line (grant id, grant type, error, user agent, colo) and `oauth-provider error` lines end with the provider's internal `[category/reason]`.
+
 ### Service token (CI / headless)
 
 For environments that cannot complete a browser OAuth flow (CI, unattended agents), you can pass a Knock [service token](https://docs.knock.app/developer-tools/service-tokens) (`knock_st_…`) as a bearer credential. MCP clients that set `Authorization` skip OAuth.
