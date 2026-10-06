@@ -8,6 +8,13 @@ import { OPENAI_APPS_CHALLENGE_PATH, openaiAppsChallengeResponse } from "./opena
 import { canonicalMcpResource, withCanonicalMcpResource } from "./mcp-resource";
 import { sentryConfig, shouldCaptureOAuthProviderError } from "./sentry";
 import { resolveKnockServiceToken } from "./service-token";
+import { ensureUpstreamSession, withKnockSessionGuard } from "./session-guard";
+import {
+  MCP_ACCESS_TOKEN_TTL_SECONDS,
+  MCP_REFRESH_TOKEN_IDLE_TTL_SECONDS,
+  MCP_REFRESH_TOKEN_TTL_SECONDS,
+} from "./session-lifetimes";
+import { logTokenEndpointFailure } from "./token-endpoint-log";
 
 export const KnockMCP = Sentry.instrumentDurableObjectWithSentry(
   sentryConfig,
@@ -19,14 +26,20 @@ export const KnockMCP = Sentry.instrumentDurableObjectWithSentry(
 // Cast to our global Env, which src/env.d.ts patches with those bindings.
 const origin = (env as Env).DEV_ORIGIN || "https://mcp.knock.app";
 
-const provider = new OAuthProvider({
+const provider = new OAuthProvider<Env>({
   apiRoute: "/mcp",
-  apiHandler: KnockMCP.serve("/mcp") as any,
+  apiHandler: withKnockSessionGuard(KnockMCP.serve("/mcp") as any) as any,
   defaultHandler: AuthHandler as any,
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/token",
   clientRegistrationEndpoint: "/register",
   clientIdMetadataDocumentEnabled: true,
+  accessTokenTTL: MCP_ACCESS_TOKEN_TTL_SECONDS,
+  refreshTokenTTL: MCP_REFRESH_TOKEN_TTL_SECONDS,
+  refreshTokenIdleTTL: MCP_REFRESH_TOKEN_IDLE_TTL_SECONDS,
+  // Runs on every MCP refresh_token grant: checks the upstream Knock session.
+  // `invalid_grant` makes the provider revoke the grant so clients re-auth.
+  tokenExchangeCallback: ensureUpstreamSession,
   // RFC 9728: pins grants and access-token audiences to this exact
   // resource, and controls /.well-known/oauth-protected-resource.
   resourceMetadata: { resource: canonicalMcpResource(origin) },
@@ -42,7 +55,9 @@ const provider = new OAuthProvider({
   onError(error) {
     const { code, description, status, internal } = error;
     const log = status >= 500 ? console.error : console.warn;
-    log(`oauth-provider error: ${status} ${code} - ${description}`);
+    log(
+      `oauth-provider error: ${status} ${code} - ${description} [${internal.category}/${internal.reason}]`,
+    );
 
     if (!shouldCaptureOAuthProviderError(error)) {
       return;
@@ -50,7 +65,7 @@ const provider = new OAuthProvider({
 
     Sentry.captureMessage(`oauth-provider error: ${code}`, {
       level: status >= 500 ? "error" : "warning",
-      tags: { code, status, category: internal?.category },
+      tags: { code, status, category: internal.category, reason: internal.reason },
       extra: { description, internal },
     });
   },
@@ -111,7 +126,15 @@ const handler = {
     // those aliases onto https://mcp.knock.app/mcp before the provider.
     const providerRequest = await withCanonicalMcpResource(rewritten, canonicalMcpResource(origin));
 
-    return provider.fetch(providerRequest, env, ctx);
+    const isTokenRequest = url.pathname === "/token" && request.method === "POST";
+    const logRequest = isTokenRequest ? providerRequest.clone() : null;
+    const response = await provider.fetch(providerRequest, env, ctx);
+
+    if (logRequest && response.status >= 400) {
+      ctx.waitUntil(logTokenEndpointFailure(logRequest, response.clone()));
+    }
+
+    return response;
   },
 } satisfies ExportedHandler<Env>;
 

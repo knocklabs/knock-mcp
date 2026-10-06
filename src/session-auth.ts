@@ -40,6 +40,7 @@ export function requireSessionAuth(props: SessionCredentialFields | null | undef
 export function buildOauthProps(input: {
   tokenId: string;
   clientId: string;
+  issuedAt?: number;
   userId?: string;
   email?: string;
   selectedGroups: string[];
@@ -50,6 +51,7 @@ export function buildOauthProps(input: {
     tokenId: input.tokenId,
     clientId: input.clientId,
     selectedGroups: input.selectedGroups,
+    ...(input.issuedAt !== undefined ? { issuedAt: input.issuedAt } : {}),
     ...(input.userId !== undefined ? { userId: input.userId } : {}),
     ...(input.email !== undefined ? { email: input.email } : {}),
     ...(input.mapiAccessMode !== undefined ? { mapiAccessMode: input.mapiAccessMode } : {}),
