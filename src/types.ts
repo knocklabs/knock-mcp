@@ -19,6 +19,8 @@ export interface Props extends Record<string, unknown> {
   /** KV pointer for AuthKit tokens. Absent on service-token sessions. */
   tokenId?: string;
   clientId: string;
+  /** Unix seconds when the OAuth grant was issued; absent on grants created before this field. */
+  issuedAt?: number;
   userId?: string;
   email?: string;
   selectedGroups?: string[];

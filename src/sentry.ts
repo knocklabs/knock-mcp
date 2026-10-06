@@ -44,12 +44,21 @@ type OAuthProviderError = Parameters<NonNullable<OAuthProviderOptions["onError"]
  * access tokens, resource/audience mismatch, malformed requests). Those are
  * useful as Cloudflare logs, not as Sentry issues.
  *
- * Allowlist: 5xx / `server_error`, or any error with `internal` — that is why
- * `onError` was added (CIMD fetch failures at `/token` land as a generic
- * `invalid_client` on the wire).
+ * Since 1.x every provider error carries `internal`, so its mere presence no
+ * longer marks an error as unexpected. Allowlist: 5xx / `server_error`, plus
+ * CIMD document fetch failures (which reach the wire as a generic
+ * `invalid_client`). 5xx from our own `tokenExchangeCallback` are excluded:
+ * they signal a transient upstream outage that `token-store` already reports.
  */
 export function shouldCaptureOAuthProviderError(error: OAuthProviderError): boolean {
-  return error.status >= 500 || error.code === "server_error" || Boolean(error.internal);
+  if (error.internal.category === "token-exchange-callback") {
+    return false;
+  }
+  return (
+    error.status >= 500 ||
+    error.code === "server_error" ||
+    error.internal.category === "client-id-metadata-document"
+  );
 }
 
 /** Drop bearer credentials and service tokens from Sentry event payloads. */
