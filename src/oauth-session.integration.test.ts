@@ -3,27 +3,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@sentry/cloudflare", () => ({ captureMessage: vi.fn(), captureException: vi.fn() }));
 
-import { ensureUpstreamSession, withKnockSessionGuard } from "./session-guard";
-import { MCP_ACCESS_TOKEN_TTL_SECONDS, MCP_GRANT_TTL_SECONDS } from "./session-lifetimes";
+import { MCP_ACCESS_TOKEN_TTL_SECONDS } from "./session-lifetimes";
+import { sessionProviderOptions } from "./session-options";
 import { createKnockEnv } from "./test/knock-env";
 import { nowSeconds } from "./time";
 import { buildOauthProps } from "./session-auth";
-import { storeKnockTokens, type KnockTokenData } from "./token-store";
+import { tokenData } from "./test/token-fixtures";
+import { storeKnockTokens } from "./token-store";
 import type { MemoryKv } from "./test/memory-kv";
 
 const ORIGIN = "https://mcp.knock.app";
 const RESOURCE = `${ORIGIN}/mcp`;
 const REDIRECT_URI = "http://localhost:3334/callback";
-
-function staleTokens(): KnockTokenData {
-  return {
-    accessToken: "up-access",
-    refreshToken: "up-refresh",
-    expiresAt: 1,
-    tokenEndpoint: "https://signin.example.com/oauth2/token",
-    upstreamClientId: "up-client",
-  };
-}
 
 /**
  * Drives the real OAuth provider (not a mock) with the options index.ts uses
@@ -39,21 +30,14 @@ function createWorld() {
 
   const options = {
     apiRoute: "/mcp",
-    apiHandler: withKnockSessionGuard(mcpHandler as never, {
-      resourceMetadataUrl: `${ORIGIN}/.well-known/oauth-protected-resource/mcp`,
-    }) as never,
+    ...sessionProviderOptions({ mcpHandler: mcpHandler as never, mcpResource: RESOURCE }),
     defaultHandler: { fetch: async () => new Response("default") } as never,
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/token",
     clientRegistrationEndpoint: "/register",
-    accessTokenTTL: MCP_ACCESS_TOKEN_TTL_SECONDS,
-    refreshTokenTTL: MCP_GRANT_TTL_SECONDS,
-    refreshTokenIdleTTL: MCP_GRANT_TTL_SECONDS,
-    tokenExchangeCallback: ensureUpstreamSession,
-    resourceMetadata: { resource: RESOURCE },
   };
   const provider = new OAuthProvider<Env>(options);
-  const fullEnv = env as unknown as Env;
+  const fullEnv = env;
 
   const fetchProvider = (path: string, init?: RequestInit) =>
     provider.fetch(new Request(`${ORIGIN}${path}`, init), fullEnv, {
@@ -68,7 +52,7 @@ function createWorld() {
       body: new URLSearchParams(params),
     });
 
-  const helpers = getOAuthApi(options as never, fullEnv);
+  const helpers = getOAuthApi(options, fullEnv);
 
   /** Registers a client, mints a grant bound to a stale upstream record, and exchanges the code. */
   async function signIn(opts: {
@@ -84,7 +68,11 @@ function createWorld() {
         clientName: "test",
         tokenEndpointAuthMethod: "none",
       }));
-    await storeKnockTokens(env, opts.tokenId, staleTokens());
+    await storeKnockTokens(
+      env,
+      opts.tokenId,
+      tokenData({ accessToken: "up-access", refreshToken: "up-refresh", expiresAt: 1 }),
+    );
 
     const verifier = "v".repeat(64);
     const challenge = Buffer.from(

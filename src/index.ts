@@ -6,15 +6,10 @@ import { AuthHandler } from "./auth-handler";
 import { KnockMCP as KnockMCPBase } from "./knock-mcp";
 import { OPENAI_APPS_CHALLENGE_PATH, openaiAppsChallengeResponse } from "./openai-apps-challenge";
 import { KnockTokenLock } from "./knock-token-lock";
-import {
-  canonicalMcpResource,
-  protectedResourceMetadataUrl,
-  withCanonicalMcpResource,
-} from "./mcp-resource";
+import { canonicalMcpResource, withCanonicalMcpResource } from "./mcp-resource";
 import { sentryConfig, shouldCaptureOAuthProviderError } from "./sentry";
 import { resolveKnockServiceToken } from "./service-token";
-import { ensureUpstreamSession, withKnockSessionGuard } from "./session-guard";
-import { MCP_ACCESS_TOKEN_TTL_SECONDS, MCP_GRANT_TTL_SECONDS } from "./session-lifetimes";
+import { sessionProviderOptions } from "./session-options";
 import { withTokenEndpointLogging } from "./token-endpoint-log";
 
 export { KnockTokenLock };
@@ -35,23 +30,12 @@ const mcpResource = canonicalMcpResource(origin);
 
 const provider = new OAuthProvider<Env>({
   apiRoute: "/mcp",
-  apiHandler: withKnockSessionGuard(KnockMCP.serve("/mcp"), {
-    resourceMetadataUrl: protectedResourceMetadataUrl(mcpResource),
-  }) as any,
+  ...sessionProviderOptions({ mcpHandler: KnockMCP.serve("/mcp"), mcpResource }),
   defaultHandler: AuthHandler as any,
   authorizeEndpoint: "/authorize",
   tokenEndpoint: TOKEN_ENDPOINT,
   clientRegistrationEndpoint: "/register",
   clientIdMetadataDocumentEnabled: true,
-  accessTokenTTL: MCP_ACCESS_TOKEN_TTL_SECONDS,
-  refreshTokenTTL: MCP_GRANT_TTL_SECONDS,
-  refreshTokenIdleTTL: MCP_GRANT_TTL_SECONDS,
-  // Runs on every MCP refresh_token grant: checks the upstream Knock session.
-  // `invalid_grant` makes the provider revoke the grant so clients re-auth.
-  tokenExchangeCallback: ensureUpstreamSession,
-  // RFC 9728: pins grants and access-token audiences to this exact
-  // resource, and controls /.well-known/oauth-protected-resource.
-  resourceMetadata: { resource: mcpResource },
   resolveExternalToken: async ({ token, env }) => {
     const resolved = await resolveKnockServiceToken(token, env);
     // 0.10+ rejects external bearers unless audience matches resourceMetadata.resource.

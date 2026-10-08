@@ -11,6 +11,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // The provider imports `cloudflare:workers`; inlining it lets the alias above apply.
     server: { deps: { inline: ["@cloudflare/workers-oauth-provider"] } },
     include: ["src/**/*.test.ts"],
   },

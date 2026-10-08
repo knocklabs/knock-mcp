@@ -15,7 +15,7 @@
       "tag": "v1"
     },
     {
-      "new_classes": ["KnockTokenLock"],
+      "new_sqlite_classes": ["KnockTokenLock"],
       "tag": "v2"
     }
   ],

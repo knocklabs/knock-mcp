@@ -1,8 +1,7 @@
-import * as jose from "jose";
-import * as Sentry from "@sentry/cloudflare";
-
 import { MCP_GRANT_TTL_SECONDS } from "./session-lifetimes";
 import { nowSeconds } from "./time";
+import { requestUpstreamRefresh, type UpstreamFailure } from "./upstream-refresh";
+import * as Sentry from "@sentry/cloudflare";
 
 const TOKEN_REFRESH_BUFFER_SECONDS = 60;
 const TRANSIENT_RETRY_DELAY_MS = 250;
@@ -21,9 +20,6 @@ const PENDING_KNOCK_TOKEN_TTL_SECONDS = 15 * 60;
  */
 const MAX_TRANSIENT_FAILURE_SECONDS = 24 * 60 * 60;
 
-/** Errors on the shared upstream OAuth client, not on one user's session. */
-const UPSTREAM_CLIENT_ERRORS = new Set(["invalid_client", "unauthorized_client"]);
-
 export interface KnockTokenData {
   accessToken: string;
   refreshToken: string | null;
@@ -41,32 +37,44 @@ export interface KnockTokenData {
  */
 export type KnockSessionErrorKind = "missing" | "terminal" | "transient";
 
-export class KnockSessionError extends Error {
-  readonly kind: KnockSessionErrorKind;
-
-  constructor(kind: KnockSessionErrorKind, message: string) {
-    super(message);
-    this.name = "KnockSessionError";
-    this.kind = kind;
-  }
-}
-
 const SESSION_ERROR_MESSAGES: Record<KnockSessionErrorKind, string> = {
   missing: "Knock session not found. Please re-authenticate.",
   terminal: "Knock token refresh failed. Please re-authenticate.",
   transient: "Knock token refresh is temporarily unavailable. Please retry.",
 };
 
-export type RefreshOutcome =
-  | { ok: true; accessToken: string }
-  | { ok: false; kind: KnockSessionErrorKind };
+export class KnockSessionError extends Error {
+  constructor(readonly kind: KnockSessionErrorKind) {
+    super(SESSION_ERROR_MESSAGES[kind]);
+    this.name = "KnockSessionError";
+  }
+}
 
-type RefreshOptions = { renewTtl?: boolean };
+/** What went wrong upstream. Plain data, so it survives the trip back from the lock Durable Object. */
+export type RefreshReport = { status?: number; body: string; clientError: boolean };
+
+/**
+ * Result of a refresh. Returned instead of thrown because error classes do not
+ * survive Durable Object RPC. The lock Durable Object has no Sentry client, so
+ * anything worth reporting travels in the outcome and is reported by the caller.
+ */
+export type RefreshOutcome =
+  | { ok: true; accessToken: string; persistFailed?: boolean }
+  | { ok: false; kind: KnockSessionErrorKind; report?: RefreshReport };
+
+export type RefreshOptions = { renewTtl?: boolean };
 
 const tokenKey = (tokenId: string) => `knock-token:${tokenId}`;
 
 const isFresh = (data: KnockTokenData) =>
   data.expiresAt - nowSeconds() > TOKEN_REFRESH_BUFFER_SECONDS;
+
+const isRecord = (value: unknown): value is KnockTokenData =>
+  typeof value === "object" &&
+  value !== null &&
+  typeof (value as KnockTokenData).accessToken === "string" &&
+  typeof (value as KnockTokenData).expiresAt === "number" &&
+  typeof (value as KnockTokenData).tokenEndpoint === "string";
 
 export async function storeKnockTokens(
   env: Pick<Env, "OAUTH_KV">,
@@ -92,7 +100,7 @@ export async function activateKnockTokens(
   tokenId: string,
 ): Promise<void> {
   const data = await readTokens(env, tokenId);
-  if (!data) throw new KnockSessionError("missing", SESSION_ERROR_MESSAGES.missing);
+  if (!data) throw new KnockSessionError("missing");
   await storeKnockTokens(env, tokenId, data);
 }
 
@@ -103,13 +111,15 @@ async function readTokens(
   const raw = await env.OAUTH_KV.get(tokenKey(tokenId));
   if (!raw) return null;
   try {
-    return JSON.parse(raw) as KnockTokenData;
+    const parsed: unknown = JSON.parse(raw);
+    if (isRecord(parsed)) return parsed;
   } catch {
-    await env.OAUTH_KV.delete(tokenKey(tokenId));
-    return null;
+    // Falls through: an unreadable record is as good as none.
   }
+  return null;
 }
 
+/** Whether a readable record exists. Read-only, so the per-request guard never writes. */
 export async function hasKnockTokens(
   env: Pick<Env, "OAUTH_KV">,
   tokenId: string,
@@ -117,109 +127,61 @@ export async function hasKnockTokens(
   return (await readTokens(env, tokenId)) !== null;
 }
 
-type UpstreamFailure = {
-  ok: false;
-  kind: "terminal" | "transient";
-  /** Error on the shared upstream client; needs an operator, not a user. */
-  clientError: boolean;
-  status?: number;
-  body: string;
-};
+type FailureDecision =
+  | { action: "drop" }
+  | { action: "remember"; failingSince: number }
+  | { action: "keep" };
 
-async function requestUpstreamRefresh(
-  data: KnockTokenData,
-  refreshToken: string,
-): Promise<{ ok: true; data: KnockTokenData } | UpstreamFailure> {
-  let response: Response;
-  try {
-    response = await fetch(data.tokenEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "refresh_token",
-        refresh_token: refreshToken,
-        client_id: data.upstreamClientId,
-      }),
-    });
-  } catch (error) {
-    return { ok: false, kind: "transient", clientError: false, body: String(error) };
-  }
+/**
+ * What to do with a session after a failed upstream refresh. Only
+ * `invalid_grant` kills a session at once. Errors on the shared client never
+ * count toward the failure bound, because they are not this user's fault.
+ * Anything else is retried until it has been failing for a full day.
+ */
+export function decideFailure(
+  data: Pick<KnockTokenData, "failingSince">,
+  failure: Pick<UpstreamFailure, "kind" | "clientError">,
+  now: number,
+): FailureDecision {
+  if (failure.kind === "terminal") return { action: "drop" };
+  if (failure.clientError) return { action: "keep" };
 
-  if (!response.ok) {
-    const body = await response.text();
-    let errorCode: unknown;
-    try {
-      errorCode = (JSON.parse(body) as { error?: unknown }).error;
-    } catch {
-      errorCode = undefined;
-    }
-    const rejected = response.status === 400 || response.status === 401;
-    return {
-      ok: false,
-      kind: rejected && errorCode === "invalid_grant" ? "terminal" : "transient",
-      clientError:
-        rejected && typeof errorCode === "string" && UPSTREAM_CLIENT_ERRORS.has(errorCode),
-      status: response.status,
-      body,
-    };
-  }
+  const failingSince = data.failingSince ?? now;
+  if (now - failingSince > MAX_TRANSIENT_FAILURE_SECONDS) return { action: "drop" };
+  return data.failingSince === undefined
+    ? { action: "remember", failingSince }
+    : { action: "keep" };
+}
 
-  const tokenData = (await response.json()) as {
-    access_token: string;
-    refresh_token?: string;
-    expires_in?: number;
-  };
-
-  let expiresAt: number = nowSeconds() + (tokenData.expires_in ?? 300);
-  try {
-    const claims = jose.decodeJwt(tokenData.access_token);
-    if (typeof claims.exp === "number") expiresAt = claims.exp;
-  } catch {
-    // Non-JWT access token; fall back to expires_in or default
-  }
-
-  return {
-    ok: true,
-    data: {
-      accessToken: tokenData.access_token,
-      refreshToken: tokenData.refresh_token ?? refreshToken,
-      expiresAt,
-      tokenEndpoint: data.tokenEndpoint,
-      upstreamClientId: data.upstreamClientId,
-    },
-  };
+/** Removing the record makes the MCP endpoint answer 401 on the next request, so the client re-authorizes. */
+async function dropSession(
+  env: Pick<Env, "OAUTH_KV">,
+  tokenId: string,
+): Promise<Extract<RefreshOutcome, { ok: false }>> {
+  await env.OAUTH_KV.delete(tokenKey(tokenId));
+  return { ok: false, kind: "terminal" };
 }
 
 /**
  * The upstream rotated the refresh token, so losing this write loses the
- * session. Retry, and if it still fails hand back the access token we have:
- * this request can proceed and the failure is loud in Sentry.
+ * session. Retry, and report whether it stuck so the caller can raise the alarm
+ * while this request still proceeds with the access token it has.
  */
 async function persistRotatedTokens(
   env: Pick<Env, "OAUTH_KV">,
   tokenId: string,
   data: KnockTokenData,
-): Promise<void> {
+): Promise<boolean> {
   for (let attempt = 1; attempt <= KV_WRITE_ATTEMPTS; attempt++) {
     try {
       await storeKnockTokens(env, tokenId, data);
-      return;
+      return true;
     } catch (error) {
-      if (attempt === KV_WRITE_ATTEMPTS) {
+      if (attempt === KV_WRITE_ATTEMPTS)
         console.error("Failed to persist rotated Knock tokens:", error);
-        Sentry.captureException(error, { tags: { stage: "persist_rotated_tokens" } });
-      }
     }
   }
-}
-
-function reportRefreshFailure(failure: UpstreamFailure, data: KnockTokenData): void {
-  console.error("Knock token refresh failed:", failure.body);
-  Sentry.captureMessage("Knock token refresh failed", {
-    level: failure.clientError ? "error" : "warning",
-    tags: { "knock.refresh_failure": failure.clientError ? "client_error" : failure.kind },
-    extra: { status: failure.status, body: failure.body, tokenEndpoint: data.tokenEndpoint },
-  });
+  return false;
 }
 
 async function handleRefreshFailure(
@@ -228,25 +190,22 @@ async function handleRefreshFailure(
   data: KnockTokenData,
   failure: UpstreamFailure,
 ): Promise<RefreshOutcome> {
-  reportRefreshFailure(failure, data);
+  console.error("Knock token refresh failed:", failure.body);
+  const report: RefreshReport = {
+    status: failure.status,
+    body: failure.body,
+    clientError: failure.clientError,
+  };
 
-  const failingSince = data.failingSince ?? nowSeconds();
-  const exhausted =
-    failure.kind === "transient" &&
-    !failure.clientError &&
-    nowSeconds() - failingSince > MAX_TRANSIENT_FAILURE_SECONDS;
+  const decision = decideFailure(data, failure, nowSeconds());
+  if (decision.action === "drop") return { ...(await dropSession(env, tokenId)), report };
 
-  if (failure.kind === "terminal" || exhausted) {
-    // Dropping the record lets the MCP endpoint answer 401 on the next request
-    // so the client starts a new authorization instead of retrying tool calls.
-    await env.OAUTH_KV.delete(tokenKey(tokenId));
-    return { ok: false, kind: "terminal" };
+  if (decision.action === "remember") {
+    await storeKnockTokens(env, tokenId, { ...data, failingSince: decision.failingSince }).catch(
+      () => undefined,
+    );
   }
-
-  if (data.failingSince === undefined && !failure.clientError) {
-    await storeKnockTokens(env, tokenId, { ...data, failingSince }).catch(() => undefined);
-  }
-  return { ok: false, kind: "transient" };
+  return { ok: false, kind: "transient", report };
 }
 
 /**
@@ -270,10 +229,7 @@ export async function refreshKnockSession(
     return { ok: true, accessToken: data.accessToken };
   }
 
-  if (!data.refreshToken) {
-    await env.OAUTH_KV.delete(tokenKey(tokenId));
-    return { ok: false, kind: "terminal" };
-  }
+  if (!data.refreshToken) return dropSession(env, tokenId);
 
   let result = await requestUpstreamRefresh(data, data.refreshToken);
   if (!result.ok && result.kind === "transient") {
@@ -281,22 +237,33 @@ export async function refreshKnockSession(
     result = await requestUpstreamRefresh(data, data.refreshToken);
   }
 
-  if (result.ok) {
-    await persistRotatedTokens(env, tokenId, result.data);
-    return { ok: true, accessToken: result.data.accessToken };
-  }
+  if (!result.ok) return handleRefreshFailure(env, tokenId, data, result);
 
-  return handleRefreshFailure(env, tokenId, data, result);
+  const persisted = await persistRotatedTokens(env, tokenId, result.data);
+  return {
+    ok: true,
+    accessToken: result.data.accessToken,
+    ...(persisted ? {} : { persistFailed: true }),
+  };
 }
 
-/** Runs tasks one at a time, so a Durable Object serializes work for its session. */
-export function createSerialQueue() {
-  let tail: Promise<unknown> = Promise.resolve();
-  return function enqueue<T>(task: () => Promise<T>): Promise<T> {
-    const run = tail.then(task);
-    tail = run.catch(() => undefined);
-    return run;
-  };
+function reportOutcome(outcome: RefreshOutcome): void {
+  if (outcome.ok) {
+    if (outcome.persistFailed) {
+      Sentry.captureMessage("Failed to persist rotated Knock tokens", {
+        level: "error",
+        tags: { stage: "persist_rotated_tokens" },
+      });
+    }
+    return;
+  }
+  if (!outcome.report) return;
+
+  Sentry.captureMessage("Knock token refresh failed", {
+    level: outcome.report.clientError ? "error" : "warning",
+    tags: { "knock.refresh_failure": outcome.report.clientError ? "client_error" : outcome.kind },
+    extra: { status: outcome.report.status, body: outcome.report.body },
+  });
 }
 
 /**
@@ -313,12 +280,13 @@ export async function getOrRefreshKnockToken(
   options: RefreshOptions = {},
 ): Promise<string> {
   const data = await readTokens(env, tokenId);
-  if (!data) throw new KnockSessionError("missing", SESSION_ERROR_MESSAGES.missing);
+  if (!data) throw new KnockSessionError("missing");
 
   if (isFresh(data) && !options.renewTtl) return data.accessToken;
 
   const lock = env.KNOCK_TOKEN_LOCK.get(env.KNOCK_TOKEN_LOCK.idFromName(tokenId));
   const outcome = await lock.refresh(tokenId, options);
+  reportOutcome(outcome);
   if (outcome.ok) return outcome.accessToken;
-  throw new KnockSessionError(outcome.kind, SESSION_ERROR_MESSAGES[outcome.kind]);
+  throw new KnockSessionError(outcome.kind);
 }

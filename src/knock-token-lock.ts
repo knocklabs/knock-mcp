@@ -1,6 +1,16 @@
 import { DurableObject } from "cloudflare:workers";
 
-import { createSerialQueue, refreshKnockSession, type RefreshOutcome } from "./token-store";
+import { refreshKnockSession, type RefreshOptions, type RefreshOutcome } from "./token-store";
+
+/** Runs tasks one at a time, so a Durable Object serializes work for its session. */
+export function createSerialQueue() {
+  let tail: Promise<unknown> = Promise.resolve();
+  return function enqueue<T>(task: () => Promise<T>): Promise<T> {
+    const run = tail.then(task);
+    tail = run.catch(() => undefined);
+    return run;
+  };
+}
 
 /**
  * One instance per upstream session (named by tokenId). The upstream rotates
@@ -12,7 +22,7 @@ import { createSerialQueue, refreshKnockSession, type RefreshOutcome } from "./t
 export class KnockTokenLock extends DurableObject<Env> {
   private readonly enqueue = createSerialQueue();
 
-  refresh(tokenId: string, options: { renewTtl?: boolean }): Promise<RefreshOutcome> {
+  refresh(tokenId: string, options: RefreshOptions): Promise<RefreshOutcome> {
     return this.enqueue(() => refreshKnockSession(this.env, tokenId, options));
   }
 }
