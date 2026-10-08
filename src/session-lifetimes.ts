@@ -21,3 +21,25 @@ export const MCP_GRANT_TTL_SECONDS = 60 * 60 * 24 * 90;
  * are only bound by the sliding window.
  */
 export const MCP_GRANT_MAX_AGE_SECONDS = 60 * 60 * 24 * 365;
+
+/**
+ * KV reads can lag a recent write by up to a minute. For this long after a grant
+ * is issued a missing `knock-token:` record is treated as not yet visible
+ * instead of as a dead session, because declaring it dead revokes the grant.
+ */
+const NEW_GRANT_GRACE_SECONDS = 120;
+
+/**
+ * - `legacy`: minted before `issuedAt` existed, so only the sliding window bounds it.
+ * - `new`: issued within the KV propagation grace window.
+ * - `established`: past the grace window and within its absolute lifetime.
+ * - `expired`: older than the absolute lifetime.
+ */
+export type GrantPhase = "legacy" | "new" | "established" | "expired";
+
+export function grantPhase(props: { issuedAt?: number } | undefined, now: number): GrantPhase {
+  if (typeof props?.issuedAt !== "number") return "legacy";
+  const age = now - props.issuedAt;
+  if (age < NEW_GRANT_GRACE_SECONDS) return "new";
+  return age > MCP_GRANT_MAX_AGE_SECONDS ? "expired" : "established";
+}

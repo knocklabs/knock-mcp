@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const captureMessage = vi.hoisted(() => vi.fn());
-const captureException = vi.hoisted(() => vi.fn());
-vi.mock("@sentry/cloudflare", () => ({ captureMessage, captureException }));
+vi.mock("@sentry/cloudflare", () => ({ captureMessage }));
 
 import { createKnockEnv } from "./test/knock-env";
+import { tokenData, upstreamError, upstreamOk } from "./test/token-fixtures";
 import { nowSeconds } from "./time";
 import {
   KnockSessionError,
   activateKnockTokens,
+  decideFailure,
   getOrRefreshKnockToken,
   hasKnockTokens,
   refreshKnockSession,
@@ -19,38 +20,30 @@ import {
 
 const DAY = 24 * 60 * 60;
 
-function tokenData(overrides: Partial<KnockTokenData> = {}): KnockTokenData {
-  return {
-    accessToken: "access-old",
-    refreshToken: "refresh-old",
-    expiresAt: nowSeconds() - 10,
-    tokenEndpoint: "https://signin.example.com/oauth2/token",
-    upstreamClientId: "client_upstream",
-    ...overrides,
-  };
-}
-
-const upstreamOk = () =>
-  new Response(
-    JSON.stringify({ access_token: "access-new", refresh_token: "refresh-new", expires_in: 3600 }),
-    { status: 200 },
-  );
-
-const upstreamError = (status: number, error?: string) =>
-  new Response(error ? JSON.stringify({ error }) : "Bad Gateway", { status });
-
 function storedRecord(kv: { store: Map<string, { value: string }> }, tokenId: string) {
   const entry = kv.store.get(`knock-token:${tokenId}`);
   return entry ? (JSON.parse(entry.value) as KnockTokenData) : undefined;
+}
+
+/** Lets the refresh retry delay elapse without waiting for it. */
+async function run<T>(promise: Promise<T>): Promise<T> {
+  const settled = promise.then(
+    (value) => ({ value }),
+    (error: unknown) => ({ error }),
+  );
+  await vi.advanceTimersByTimeAsync(1_000);
+  const result = await settled;
+  if ("error" in result) throw result.error;
+  return result.value;
 }
 
 describe("knock token store", () => {
   let { env, kv } = createKnockEnv();
 
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] });
     ({ env, kv } = createKnockEnv());
     captureMessage.mockClear();
-    captureException.mockClear();
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
 
@@ -91,20 +84,24 @@ describe("knock token store", () => {
     it("runs concurrent refreshes one at a time so the rotated token is used once", async () => {
       await storeKnockTokens(env, "t1", tokenData());
       const usedRefreshTokens: string[] = [];
+      let release: () => void = () => {};
+      const upstreamGate = new Promise<void>((resolve) => (release = resolve));
       vi.spyOn(globalThis, "fetch").mockImplementation(async (_url, init) => {
         const body = new URLSearchParams((init as RequestInit).body as URLSearchParams);
         usedRefreshTokens.push(body.get("refresh_token") as string);
-        await new Promise((resolve) => setTimeout(resolve, 5));
+        await upstreamGate;
         return upstreamOk();
       });
 
-      const results = await Promise.all([
+      const results = Promise.all([
         getOrRefreshKnockToken(env, "t1"),
         getOrRefreshKnockToken(env, "t1"),
         getOrRefreshKnockToken(env, "t1"),
       ]);
+      await vi.advanceTimersByTimeAsync(0);
+      release();
 
-      expect(results).toEqual(["access-new", "access-new", "access-new"]);
+      expect(await results).toEqual(["access-new", "access-new", "access-new"]);
       expect(usedRefreshTokens).toEqual(["refresh-old"]);
     });
 
@@ -120,23 +117,40 @@ describe("knock token store", () => {
       expect(error).toMatchObject({ kind: "terminal" });
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(await hasKnockTokens(env, "t1")).toBe(false);
+    });
+
+    it("reports upstream failures from the caller, where Sentry is available", async () => {
+      await storeKnockTokens(env, "t1", tokenData());
+      vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+        upstreamError(400, "invalid_grant"),
+      );
+      await getOrRefreshKnockToken(env, "t1").catch(() => undefined);
+
       expect(captureMessage).toHaveBeenCalledWith(
         "Knock token refresh failed",
-        expect.objectContaining({ level: "warning" }),
+        expect.objectContaining({
+          level: "warning",
+          tags: { "knock.refresh_failure": "terminal" },
+        }),
       );
     });
 
-    it("never deletes the record for errors on the shared upstream client", async () => {
+    it("never deletes the record for errors on the shared upstream client, and alerts loudly", async () => {
       await storeKnockTokens(env, "t1", tokenData());
       vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
         upstreamError(401, "invalid_client"),
       );
 
-      await expect(getOrRefreshKnockToken(env, "t1")).rejects.toMatchObject({ kind: "transient" });
+      await expect(run(getOrRefreshKnockToken(env, "t1"))).rejects.toMatchObject({
+        kind: "transient",
+      });
       expect(await hasKnockTokens(env, "t1")).toBe(true);
       expect(captureMessage).toHaveBeenCalledWith(
         "Knock token refresh failed",
-        expect.objectContaining({ level: "error" }),
+        expect.objectContaining({
+          level: "error",
+          tags: { "knock.refresh_failure": "client_error" },
+        }),
       );
     });
 
@@ -146,7 +160,9 @@ describe("knock token store", () => {
         .spyOn(globalThis, "fetch")
         .mockImplementation(async () => upstreamError(502));
 
-      await expect(getOrRefreshKnockToken(env, "t1")).rejects.toMatchObject({ kind: "transient" });
+      await expect(run(getOrRefreshKnockToken(env, "t1"))).rejects.toMatchObject({
+        kind: "transient",
+      });
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(await hasKnockTokens(env, "t1")).toBe(true);
     });
@@ -157,14 +173,16 @@ describe("knock token store", () => {
         .mockImplementationOnce(async () => upstreamError(503))
         .mockImplementationOnce(async () => upstreamOk());
 
-      await expect(getOrRefreshKnockToken(env, "t1")).resolves.toBe("access-new");
+      await expect(run(getOrRefreshKnockToken(env, "t1"))).resolves.toBe("access-new");
     });
 
     it("treats a network error as transient", async () => {
       await storeKnockTokens(env, "t1", tokenData());
       vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("connection reset"));
 
-      await expect(getOrRefreshKnockToken(env, "t1")).rejects.toMatchObject({ kind: "transient" });
+      await expect(run(getOrRefreshKnockToken(env, "t1"))).rejects.toMatchObject({
+        kind: "transient",
+      });
       expect(await hasKnockTokens(env, "t1")).toBe(true);
     });
 
@@ -175,6 +193,18 @@ describe("knock token store", () => {
       await getOrRefreshKnockToken(env, "t1", { renewTtl: true });
 
       expect(kv.ttl("knock-token:t1")).toBeGreaterThan(90 * DAY);
+    });
+
+    it("reports a rotated record that could not be saved while still returning the token", async () => {
+      await storeKnockTokens(env, "t1", tokenData());
+      vi.spyOn(globalThis, "fetch").mockImplementation(async () => upstreamOk());
+      kv.failPuts = 3;
+
+      await expect(getOrRefreshKnockToken(env, "t1")).resolves.toBe("access-new");
+      expect(captureMessage).toHaveBeenCalledWith(
+        "Failed to persist rotated Knock tokens",
+        expect.objectContaining({ level: "error" }),
+      );
     });
   });
 
@@ -189,11 +219,12 @@ describe("knock token store", () => {
       expect(await hasKnockTokens(env, "t1")).toBe(false);
     });
 
-    it("treats a corrupt record as missing and removes it", async () => {
+    it("treats an unreadable record as missing", async () => {
       kv.store.set("knock-token:t1", { value: "{not json" });
+      kv.store.set("knock-token:t2", { value: JSON.stringify({ accessToken: 5 }) });
 
       await expect(refreshKnockSession(env, "t1")).resolves.toEqual({ ok: false, kind: "missing" });
-      expect(kv.store.has("knock-token:t1")).toBe(false);
+      await expect(refreshKnockSession(env, "t2")).resolves.toEqual({ ok: false, kind: "missing" });
     });
 
     it("remembers when upstream failures started and clears it after a success", async () => {
@@ -202,7 +233,7 @@ describe("knock token store", () => {
         .spyOn(globalThis, "fetch")
         .mockImplementation(async () => upstreamError(503));
 
-      await refreshKnockSession(env, "t1");
+      await run(refreshKnockSession(env, "t1"));
       expect(storedRecord(kv, "t1")?.failingSince).toBeCloseTo(nowSeconds(), -1);
 
       fetchMock.mockImplementation(async () => upstreamOk());
@@ -216,7 +247,7 @@ describe("knock token store", () => {
         upstreamError(400, "invalid_request"),
       );
 
-      await expect(refreshKnockSession(env, "t1")).resolves.toEqual({
+      await expect(run(refreshKnockSession(env, "t1"))).resolves.toMatchObject({
         ok: false,
         kind: "terminal",
       });
@@ -227,23 +258,24 @@ describe("knock token store", () => {
       await storeKnockTokens(env, "t1", tokenData({ failingSince: nowSeconds() - DAY / 2 }));
       vi.spyOn(globalThis, "fetch").mockImplementation(async () => upstreamError(503));
 
-      await expect(refreshKnockSession(env, "t1")).resolves.toEqual({
+      await expect(run(refreshKnockSession(env, "t1"))).resolves.toMatchObject({
         ok: false,
         kind: "transient",
       });
       expect(await hasKnockTokens(env, "t1")).toBe(true);
     });
 
-    it("still returns the new access token when persisting the rotated record keeps failing", async () => {
+    it("treats a malformed upstream success as transient instead of storing it", async () => {
       await storeKnockTokens(env, "t1", tokenData());
-      vi.spyOn(globalThis, "fetch").mockImplementation(async () => upstreamOk());
-      kv.failPuts = 3;
+      vi.spyOn(globalThis, "fetch").mockImplementation(
+        async () => new Response("<html>maintenance</html>", { status: 200 }),
+      );
 
-      await expect(refreshKnockSession(env, "t1")).resolves.toEqual({
-        ok: true,
-        accessToken: "access-new",
+      await expect(run(refreshKnockSession(env, "t1"))).resolves.toMatchObject({
+        ok: false,
+        kind: "transient",
       });
-      expect(captureException).toHaveBeenCalledOnce();
+      expect(storedRecord(kv, "t1")?.accessToken).toBe("access-old");
     });
 
     it("retries the write of a rotated record", async () => {
@@ -251,10 +283,10 @@ describe("knock token store", () => {
       vi.spyOn(globalThis, "fetch").mockImplementation(async () => upstreamOk());
       kv.failPuts = 2;
 
-      await refreshKnockSession(env, "t1");
+      const outcome = await refreshKnockSession(env, "t1");
 
+      expect(outcome).toEqual({ ok: true, accessToken: "access-new" });
       expect(storedRecord(kv, "t1")?.refreshToken).toBe("refresh-new");
-      expect(captureException).not.toHaveBeenCalled();
     });
 
     it("does not fail the refresh when renewing a fresh record's TTL fails", async () => {
@@ -265,6 +297,40 @@ describe("knock token store", () => {
         ok: true,
         accessToken: "access-old",
       });
+    });
+  });
+
+  describe("decideFailure", () => {
+    const now = 1_000_000;
+
+    it.each([
+      ["invalid_grant is terminal", {}, { kind: "terminal", clientError: false }, "drop"],
+      [
+        "a shared client error is kept however long it lasts",
+        { failingSince: now - 5 * DAY },
+        { kind: "transient", clientError: true },
+        "keep",
+      ],
+      [
+        "the first transient failure is remembered",
+        {},
+        { kind: "transient", clientError: false },
+        "remember",
+      ],
+      [
+        "a transient failure inside the bound is kept",
+        { failingSince: now - DAY / 2 },
+        { kind: "transient", clientError: false },
+        "keep",
+      ],
+      [
+        "a transient failure past the bound is dropped",
+        { failingSince: now - DAY - 1 },
+        { kind: "transient", clientError: false },
+        "drop",
+      ],
+    ] as const)("%s", (_name, data, failure, action) => {
+      expect(decideFailure(data, failure, now).action).toBe(action);
     });
   });
 

@@ -1,6 +1,8 @@
 import type { OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import type { CloudflareOptions, ErrorEvent, Event } from "@sentry/cloudflare";
 
+import { CALLBACK_ERROR_CATEGORY, CALLBACK_ERROR_REASON } from "./callback-reasons";
+
 const REDACTED = "[Filtered]";
 const SENSITIVE_HEADER_NAMES = new Set([
   "authorization",
@@ -39,6 +41,12 @@ function redactObject(value: Record<string, unknown>): Record<string, unknown> {
 
 type OAuthProviderError = Parameters<NonNullable<OAuthProviderOptions["onError"]>>[0];
 
+/** Callback 503s whose cause was already reported where it happened. */
+const REPORTED_ELSEWHERE = new Set<string>([
+  CALLBACK_ERROR_REASON.upstreamUnavailable,
+  CALLBACK_ERROR_REASON.unexpectedError,
+]);
+
 /**
  * Expected MCP client protocol rejections (expired refresh tokens, stale
  * access tokens, resource/audience mismatch, malformed requests). Those are
@@ -47,13 +55,13 @@ type OAuthProviderError = Parameters<NonNullable<OAuthProviderOptions["onError"]
  * Since 1.x every provider error carries `internal`, so its mere presence no
  * longer marks an error as unexpected. Allowlist: 5xx / `server_error`, plus
  * CIMD document fetch failures (which reach the wire as a generic
- * `invalid_client`). The expected 503 for an upstream outage is excluded; the
- * upstream failure itself is reported where it happens.
+ * `invalid_client`), minus the refresh-callback 503s that are reported by the
+ * code that hit the underlying failure.
  */
 export function shouldCaptureOAuthProviderError(error: OAuthProviderError): boolean {
   if (
-    error.internal.category === "token-exchange-callback" &&
-    error.internal.reason === "upstream_unavailable"
+    error.internal.category === CALLBACK_ERROR_CATEGORY &&
+    REPORTED_ELSEWHERE.has(error.internal.reason)
   ) {
     return false;
   }

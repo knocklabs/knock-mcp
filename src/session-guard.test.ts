@@ -1,36 +1,16 @@
-import { OAuthError } from "@cloudflare/workers-oauth-provider";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@sentry/cloudflare", () => ({ captureMessage: vi.fn(), captureException: vi.fn() }));
+vi.mock("@sentry/cloudflare", () => ({ captureMessage: vi.fn() }));
 
-import { ensureUpstreamSession, withKnockSessionGuard } from "./session-guard";
-import { MCP_GRANT_MAX_AGE_SECONDS } from "./session-lifetimes";
+import { withKnockSessionGuard } from "./session-guard";
 import { createKnockEnv } from "./test/knock-env";
+import { tokenData, upstreamError } from "./test/token-fixtures";
 import { nowSeconds } from "./time";
-import { storeKnockTokens, type KnockTokenData } from "./token-store";
+import { ensureUpstreamSession } from "./token-exchange-callback";
+import { storeKnockTokens } from "./token-store";
 import type { Props } from "./types";
 
 const RESOURCE_METADATA_URL = "https://mcp.knock.app/.well-known/oauth-protected-resource/mcp";
-
-function tokenData(overrides: Partial<KnockTokenData> = {}): KnockTokenData {
-  return {
-    accessToken: "access-old",
-    refreshToken: "refresh-old",
-    expiresAt: nowSeconds() - 10,
-    tokenEndpoint: "https://signin.example.com/oauth2/token",
-    upstreamClientId: "client_upstream",
-    ...overrides,
-  };
-}
-
-const upstreamOk = () =>
-  new Response(
-    JSON.stringify({ access_token: "access-new", refresh_token: "refresh-new", expires_in: 3600 }),
-    { status: 200 },
-  );
-
-const upstreamError = (status: number, error?: string) =>
-  new Response(error ? JSON.stringify({ error }) : "Bad Gateway", { status });
 
 const established = (overrides: Partial<Props> = {}): Props => ({
   tokenId: "t1",
@@ -39,7 +19,7 @@ const established = (overrides: Partial<Props> = {}): Props => ({
   ...overrides,
 });
 
-describe("session guard and refresh callback against the real token store", () => {
+describe("withKnockSessionGuard", () => {
   let { env, kv } = createKnockEnv();
 
   beforeEach(() => {
@@ -56,156 +36,77 @@ describe("session guard and refresh callback against the real token store", () =
     return {
       inner,
       run: () =>
-        guard.fetch(
-          request,
-          env as unknown as Env,
-          { props } as unknown as ExecutionContext<Props | undefined>,
-        ),
+        guard.fetch(request, env, { props } as unknown as ExecutionContext<Props | undefined>),
     };
   }
 
-  const refresh = (props: Props) =>
-    ensureUpstreamSession({
-      grantType: "refresh_token",
-      props,
-      env: env as unknown as Env,
-    } as unknown as Parameters<typeof ensureUpstreamSession>[0]);
+  it("forwards the request when the upstream session exists", async () => {
+    await storeKnockTokens(env, "t1", tokenData());
+    const { inner, run } = guarded(established());
 
-  describe("withKnockSessionGuard", () => {
-    it("forwards the request when the upstream session exists", async () => {
-      await storeKnockTokens(env, "t1", tokenData());
-      const { inner, run } = guarded(established());
-
-      expect(await (await run()).text()).toBe("mcp-ok");
-      expect(inner.fetch).toHaveBeenCalledOnce();
-    });
-
-    it("answers 401 with an invalid_token challenge naming the canonical metadata URL", async () => {
-      const { inner, run } = guarded(established());
-
-      const response = await run();
-
-      expect(response.status).toBe(401);
-      const challenge = response.headers.get("WWW-Authenticate") ?? "";
-      expect(challenge).toContain('error="invalid_token"');
-      expect(challenge).toContain(`resource_metadata="${RESOURCE_METADATA_URL}"`);
-      expect(await response.json()).toMatchObject({ error: "invalid_token" });
-      expect(inner.fetch).not.toHaveBeenCalled();
-    });
-
-    it("answers 401 for legacy grants that predate issuedAt", async () => {
-      const { run } = guarded({ tokenId: "t1", clientId: "c" });
-
-      expect((await run()).status).toBe(401);
-    });
-
-    it("lets a just-issued grant through while KV may still be catching up", async () => {
-      const { inner, run } = guarded(established({ issuedAt: nowSeconds() - 5 }));
-
-      await run();
-
-      expect(inner.fetch).toHaveBeenCalledOnce();
-    });
-
-    it("does not check KV for service-token sessions", async () => {
-      const getSpy = vi.spyOn(kv, "get");
-      const { inner, run } = guarded({ serviceToken: "knock_st_abc", clientId: "c" });
-
-      await run();
-
-      expect(getSpy).not.toHaveBeenCalled();
-      expect(inner.fetch).toHaveBeenCalledOnce();
-    });
-
-    it("turns a dead upstream session into a 401 on the next request", async () => {
-      await storeKnockTokens(env, "t1", tokenData());
-      vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-        upstreamError(400, "invalid_grant"),
-      );
-      await expect(refresh(established())).rejects.toMatchObject({ code: "invalid_grant" });
-
-      const { inner, run } = guarded(established());
-
-      expect((await run()).status).toBe(401);
-      expect(inner.fetch).not.toHaveBeenCalled();
-    });
+    expect(await (await run()).text()).toBe("mcp-ok");
+    expect(inner.fetch).toHaveBeenCalledOnce();
   });
 
-  describe("ensureUpstreamSession", () => {
-    it("ignores authorization code exchanges and service-token sessions", async () => {
-      const getSpy = vi.spyOn(kv, "get");
+  it("answers 401 with an invalid_token challenge naming the canonical metadata URL", async () => {
+    const { inner, run } = guarded(established());
 
-      await ensureUpstreamSession({
-        grantType: "authorization_code",
-        props: established(),
-        env,
-      } as unknown as Parameters<typeof ensureUpstreamSession>[0]);
-      await refresh({ serviceToken: "knock_st_abc", clientId: "c" });
+    const response = await run();
 
-      expect(getSpy).not.toHaveBeenCalled();
-    });
+    expect(response.status).toBe(401);
+    const challenge = response.headers.get("WWW-Authenticate") ?? "";
+    expect(challenge).toContain('error="invalid_token"');
+    expect(challenge).toContain(`resource_metadata="${RESOURCE_METADATA_URL}"`);
+    expect(await response.json()).toMatchObject({ error: "invalid_token" });
+    expect(inner.fetch).not.toHaveBeenCalled();
+  });
 
-    it("refreshes the upstream token and renews the record when the session is healthy", async () => {
-      await storeKnockTokens(env, "t1", tokenData(), 1000);
-      vi.spyOn(globalThis, "fetch").mockImplementation(async () => upstreamOk());
+  it("answers 401 for legacy grants that predate issuedAt", async () => {
+    const { run } = guarded({ tokenId: "t1", clientId: "c" });
 
-      await expect(refresh(established())).resolves.toBeUndefined();
+    expect((await run()).status).toBe(401);
+  });
 
-      expect(JSON.parse(kv.store.get("knock-token:t1")?.value as string)).toMatchObject({
-        accessToken: "access-new",
-      });
-      expect(kv.ttl("knock-token:t1")).toBeGreaterThan(90 * 24 * 60 * 60);
-    });
+  it("lets a just-issued grant through while KV may still be catching up", async () => {
+    const { inner, run } = guarded(established({ issuedAt: nowSeconds() - 5 }));
 
-    it("returns invalid_grant when the upstream refresh token is dead", async () => {
-      await storeKnockTokens(env, "t1", tokenData());
-      vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
-        upstreamError(400, "invalid_grant"),
-      );
+    await run();
 
-      const error = await refresh(established()).catch((e: unknown) => e);
+    expect(inner.fetch).toHaveBeenCalledOnce();
+  });
 
-      expect(error).toBeInstanceOf(OAuthError);
-      expect(error).toMatchObject({
-        code: "invalid_grant",
-        options: { internal: { reason: "upstream_session_dead" } },
-      });
-    });
+  it("does not check KV for service-token sessions", async () => {
+    const getSpy = vi.spyOn(kv, "get");
+    const { inner, run } = guarded({ serviceToken: "knock_st_abc", clientId: "c" });
 
-    it("returns invalid_grant when the record is missing for an established grant", async () => {
-      await expect(refresh(established())).rejects.toMatchObject({ code: "invalid_grant" });
-    });
+    await run();
 
-    it("asks the client to retry when the upstream is unavailable", async () => {
-      await storeKnockTokens(env, "t1", tokenData());
-      vi.spyOn(globalThis, "fetch").mockImplementation(async () => upstreamError(502));
+    expect(getSpy).not.toHaveBeenCalled();
+    expect(inner.fetch).toHaveBeenCalledOnce();
+  });
 
-      await expect(refresh(established())).rejects.toMatchObject({
-        code: "temporarily_unavailable",
-        options: {
-          statusCode: 503,
-          headers: { "Retry-After": "5" },
-          internal: { reason: "upstream_unavailable" },
-        },
-      });
-      expect(kv.store.has("knock-token:t1")).toBe(true);
-    });
+  it("never writes to KV, even for an unreadable record", async () => {
+    kv.store.set("knock-token:t1", { value: "{not json" });
+    const putSpy = vi.spyOn(kv, "put");
+    const deleteSpy = vi.spyOn(kv, "delete");
 
-    it("asks the client to retry when a brand new grant's record is not visible yet", async () => {
-      await expect(refresh(established({ issuedAt: nowSeconds() - 5 }))).rejects.toMatchObject({
-        code: "temporarily_unavailable",
-      });
-    });
+    expect((await guarded(established()).run()).status).toBe(401);
+    expect(putSpy).not.toHaveBeenCalled();
+    expect(deleteSpy).not.toHaveBeenCalled();
+  });
 
-    it("ends grants older than the absolute maximum age", async () => {
-      await storeKnockTokens(env, "t1", tokenData({ expiresAt: nowSeconds() + 3600 }));
+  it("turns a dead upstream session into a 401 on the next request", async () => {
+    await storeKnockTokens(env, "t1", tokenData());
+    vi.spyOn(globalThis, "fetch").mockImplementation(async () =>
+      upstreamError(400, "invalid_grant"),
+    );
+    await expect(
+      ensureUpstreamSession({ grantType: "refresh_token", props: established(), env } as never),
+    ).rejects.toMatchObject({ code: "invalid_grant" });
 
-      await expect(
-        refresh(established({ issuedAt: nowSeconds() - MCP_GRANT_MAX_AGE_SECONDS - 60 })),
-      ).rejects.toMatchObject({
-        code: "invalid_grant",
-        options: { internal: { reason: "grant_max_age_exceeded" } },
-      });
-    });
+    const { inner, run } = guarded(established());
+
+    expect((await run()).status).toBe(401);
+    expect(inner.fetch).not.toHaveBeenCalled();
   });
 });

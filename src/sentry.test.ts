@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { CALLBACK_ERROR_CATEGORY, CALLBACK_ERROR_REASON } from "./callback-reasons";
 import { redactSentryEvent, shouldCaptureOAuthProviderError } from "./sentry";
 
 describe("redactSentryEvent", () => {
@@ -96,15 +97,19 @@ describe("shouldCaptureOAuthProviderError", () => {
     ).toBe(true);
   });
 
-  it("drops 503s from the token exchange callback because token-store already reports them", () => {
+  it.each([
+    [CALLBACK_ERROR_REASON.upstreamUnavailable, false],
+    [CALLBACK_ERROR_REASON.unexpectedError, false],
+    [CALLBACK_ERROR_REASON.recordNotVisible, true],
+  ] as const)("callback 503 %s is captured: %s", (reason, captured) => {
     expect(
       shouldCaptureOAuthProviderError({
         code: "temporarily_unavailable",
         description: "Knock session is temporarily unavailable; retry shortly.",
         status: 503,
         headers,
-        internal: { category: "token-exchange-callback", reason: "upstream_unavailable" },
+        internal: { category: CALLBACK_ERROR_CATEGORY, reason },
       }),
-    ).toBe(false);
+    ).toBe(captured);
   });
 });

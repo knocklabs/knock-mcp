@@ -66,8 +66,9 @@ Lifetimes live in [`src/session-lifetimes.ts`](src/session-lifetimes.ts).
 - Every authorization creates its own grant, so signing in from a second device or client does not sign out the first. Grants are not cleaned up when a user authorizes again; they expire on their own.
 - On each MCP refresh the server checks the Knock session behind the grant. If that session is gone, the refresh fails with `invalid_grant`, the provider revokes the grant, and the client starts a new authorization. If Knock is briefly unavailable, the refresh returns `503 temporarily_unavailable` and the client keeps its tokens.
 - A request on a valid MCP token whose Knock session no longer exists gets `401 invalid_token` with the RFC 9728 challenge instead of a tool error, so clients re-authorize on their own. A grant less than two minutes old is exempt, because KV reads can lag a fresh write.
-- WorkOS rotates its refresh token on every use, so every upstream refresh for a session runs through that session's `KnockTokenLock` Durable Object, one at a time.
-- Upstream refresh failures other than `invalid_grant` are retried. After 24 hours of continuous failure the session is treated as dead.
+- WorkOS rotates its refresh token on every use, so every upstream refresh for a session runs through that session's `KnockTokenLock` Durable Object, one at a time. Upstream calls time out after 8 seconds so a hung upstream cannot hold that queue.
+- Only `invalid_grant` from WorkOS ends a session at once. Other failures are retried, and after 24 hours of continuous failure the session is treated as dead. `invalid_client` and `unauthorized_client` are errors on the shared Knock MCP client, not on a user's session, so they never end a session and never count toward the 24 hours; they are reported to Sentry at error level.
+- Anything unexpected during the refresh check (KV or Durable Object errors) is answered `503 temporarily_unavailable`, not a 500, because SDK clients discard their tokens on a 500.
 - The upstream tokens are stored in KV for 15 minutes while consent is in progress, and for the lifetime of the grant once it is issued.
 
 ### Service token (CI / headless)

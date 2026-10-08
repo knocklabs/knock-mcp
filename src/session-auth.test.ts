@@ -9,22 +9,15 @@ import {
   sessionAuthFromProps,
 } from "./session-auth";
 import { SERVICE_TOKEN_CLIENT_ID } from "./service-token";
+import { createKnockEnv } from "./test/knock-env";
+import { tokenData } from "./test/token-fixtures";
+import { nowSeconds } from "./time";
 import { storeKnockTokens } from "./token-store";
 
 vi.mock("@sentry/cloudflare", () => ({
   setUser: vi.fn(),
   setTag: vi.fn(),
 }));
-
-function memoryKv() {
-  const store = new Map<string, string>();
-  return {
-    get: async (key: string) => store.get(key) ?? null,
-    put: async (key: string, value: string) => {
-      store.set(key, value);
-    },
-  };
-}
 
 describe("sessionAuthFromProps", () => {
   it("prefers a service token over tokenId", () => {
@@ -71,38 +64,31 @@ describe("buildOauthProps", () => {
 
 describe("resolveKnockAccessToken", () => {
   it("returns a service token without touching KV", async () => {
-    const kv = memoryKv();
-    const token = await resolveKnockAccessToken(
-      { OAUTH_KV: kv } as Pick<Env, "OAUTH_KV" | "KNOCK_TOKEN_LOCK">,
-      {
-        serviceToken: "knock_st_direct",
-      },
-    );
+    const { env, kv } = createKnockEnv();
+    const getSpy = vi.spyOn(kv, "get");
+
+    const token = await resolveKnockAccessToken(env, { serviceToken: "knock_st_direct" });
+
     expect(token).toBe("knock_st_direct");
+    expect(getSpy).not.toHaveBeenCalled();
   });
 
   it("prefers a service token over tokenId", async () => {
-    const kv = memoryKv();
-    const token = await resolveKnockAccessToken(
-      { OAUTH_KV: kv } as Pick<Env, "OAUTH_KV" | "KNOCK_TOKEN_LOCK">,
-      {
-        serviceToken: "knock_st_direct",
-        tokenId: "should-not-be-used",
-      },
-    );
+    const { env } = createKnockEnv();
+    const token = await resolveKnockAccessToken(env, {
+      serviceToken: "knock_st_direct",
+      tokenId: "should-not-be-used",
+    });
     expect(token).toBe("knock_st_direct");
   });
 
   it("refreshes OAuth tokens via tokenId when no service token is set", async () => {
-    const kv = memoryKv();
-    const env = { OAUTH_KV: kv } as Pick<Env, "OAUTH_KV" | "KNOCK_TOKEN_LOCK">;
-    await storeKnockTokens(env, "oauth-1", {
-      accessToken: "oauth-access",
-      refreshToken: "refresh",
-      expiresAt: Math.floor(Date.now() / 1000) + 3600,
-      tokenEndpoint: "https://auth.example/token",
-      upstreamClientId: "client-1",
-    });
+    const { env } = createKnockEnv();
+    await storeKnockTokens(
+      env,
+      "oauth-1",
+      tokenData({ accessToken: "oauth-access", expiresAt: nowSeconds() + 3600 }),
+    );
 
     await expect(resolveKnockAccessToken(env, { tokenId: "oauth-1" })).resolves.toBe(
       "oauth-access",
@@ -110,10 +96,8 @@ describe("resolveKnockAccessToken", () => {
   });
 
   it("throws when neither service token nor tokenId is present", async () => {
-    const kv = memoryKv();
-    await expect(
-      resolveKnockAccessToken({ OAUTH_KV: kv } as Pick<Env, "OAUTH_KV" | "KNOCK_TOKEN_LOCK">, {}),
-    ).rejects.toThrow(MISSING_SESSION_CREDENTIALS);
+    const { env } = createKnockEnv();
+    await expect(resolveKnockAccessToken(env, {})).rejects.toThrow(MISSING_SESSION_CREDENTIALS);
   });
 });
 
