@@ -57,6 +57,7 @@ describe("instrumentPostHogMcp", () => {
         captureModel: true,
         enableConversationId: true,
         enableExceptionAutocapture: false,
+        reportMissing: true,
         identify: {
           distinctId: "user_1",
           properties: { authKind: "oauth", email: "user@example.com" },
@@ -83,6 +84,7 @@ describe("instrumentPostHogMcp", () => {
       server,
       client,
       expect.objectContaining({
+        reportMissing: true,
         identify: {
           distinctId: "account:acme",
           properties: {
