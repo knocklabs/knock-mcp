@@ -39,6 +39,7 @@ export function instrumentPostHogMcp(
     enableConversationId: true,
     // Sentry is the source of truth for exception details; tool-call events still include error state.
     enableExceptionAutocapture: false,
+    reportMissing: true,
     identify: distinctId
       ? {
           distinctId,
