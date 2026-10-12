@@ -3,9 +3,10 @@ import { instrument } from "@posthog/mcp";
 import { PostHog } from "posthog-node";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { instrumentPostHogMcp } from "./posthog";
+import { dropLowSignalEvents, instrumentPostHogMcp } from "./posthog";
 
-vi.mock("@posthog/mcp", () => ({
+vi.mock("@posthog/mcp", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@posthog/mcp")>()),
   instrument: vi.fn(),
 }));
 
@@ -58,6 +59,7 @@ describe("instrumentPostHogMcp", () => {
         enableConversationId: true,
         enableExceptionAutocapture: false,
         reportMissing: true,
+        beforeSend: dropLowSignalEvents,
         identify: {
           distinctId: "user_1",
           properties: { authKind: "oauth", email: "user@example.com" },
