@@ -5,7 +5,7 @@ import { PostHog } from "posthog-node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { dropHandshakeEvents, instrumentPostHogMcp } from "./posthog";
+import { dropLowSignalEvents, instrumentPostHogMcp } from "./posthog";
 
 type Captured = { event: string; distinctId: string; properties?: Record<string, unknown> };
 
@@ -34,7 +34,8 @@ async function runSession(callTool: boolean) {
   if (callTool) {
     await client.callTool({ name: "ping", arguments: { value: "hi" } });
   }
-  await vi.waitFor(() => expect(captured.some((e) => e.event === "$mcp_tools_list")).toBe(true));
+  // Capture runs after the response; let it settle so dropped events would have shown up.
+  await new Promise((resolve) => setTimeout(resolve, 50));
   await client.close();
   return captured;
 }
@@ -44,14 +45,10 @@ describe("PostHog event filtering", () => {
     vi.restoreAllMocks();
   });
 
-  it("sends tool calls and drops the initialize and identify handshake events", async () => {
+  it("sends tool calls and drops initialize, identify and tools/list events", async () => {
     const events = await runSession(true);
-    await vi.waitFor(() => expect(events.some((e) => e.event === "$mcp_tool_call")).toBe(true));
 
-    const names = events.map((e) => e.event);
-    expect(names).not.toContain("$mcp_initialize");
-    expect(names).not.toContain("$identify");
-    expect(names).toContain("$mcp_tools_list");
+    expect(events.map((e) => e.event)).toEqual(["$mcp_tool_call"]);
 
     const toolCall = events.find((e) => e.event === "$mcp_tool_call");
     expect(toolCall).toMatchObject({
@@ -64,14 +61,14 @@ describe("PostHog event filtering", () => {
     });
   });
 
-  it("sends only tools/list for a session that never calls a tool", async () => {
+  it("sends nothing for a session that never calls a tool", async () => {
     const events = await runSession(false);
 
-    expect(events.map((e) => e.event)).toEqual(["$mcp_tools_list"]);
+    expect(events).toEqual([]);
   });
 });
 
-describe("dropHandshakeEvents", () => {
+describe("dropLowSignalEvents", () => {
   const payload = (event: string) => ({
     event,
     distinct_id: "user_1",
@@ -80,18 +77,15 @@ describe("dropHandshakeEvents", () => {
     type: "capture" as const,
   });
 
-  it.each(["$mcp_initialize", "$identify"])("drops %s", (event) => {
-    expect(dropHandshakeEvents(payload(event))).toBeNull();
+  it.each(["$mcp_initialize", "$identify", "$mcp_tools_list"])("drops %s", (event) => {
+    expect(dropLowSignalEvents(payload(event))).toBeNull();
   });
 
-  it.each([
-    "$mcp_tool_call",
-    "$mcp_missing_capability",
-    "$mcp_feedback",
-    "$mcp_tools_list",
-    "$exception",
-  ])("keeps %s", (event) => {
-    const event_ = payload(event);
-    expect(dropHandshakeEvents(event_)).toBe(event_);
-  });
+  it.each(["$mcp_tool_call", "$mcp_missing_capability", "$mcp_feedback", "$exception"])(
+    "keeps %s",
+    (event) => {
+      const event_ = payload(event);
+      expect(dropLowSignalEvents(event_)).toBe(event_);
+    },
+  );
 });

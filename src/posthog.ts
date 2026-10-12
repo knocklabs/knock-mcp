@@ -7,18 +7,21 @@ import type { Props } from "./types";
 const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
 
 /**
- * Handshake events that are never sent to PostHog. Clients re-run `initialize` several times per
- * session (Claude Code does it roughly every 3-4 minutes), and each one also fires a standalone
- * `$identify`, so together they were ~90% of our event volume while carrying no usage signal.
- * Every event we still send carries `distinct_id`, `$set` person properties and `$groups`, so
- * `$identify` adds nothing that tool calls do not already provide.
+ * Events that are never sent to PostHog because they carry no usage signal at our volume.
+ * Clients re-run `initialize` several times per session (Claude Code does it roughly every 3-4
+ * minutes), and each one also fires a standalone `$identify` and usually a `tools/list`, so these
+ * three were ~99% of our event volume. Every event we still send carries `distinct_id`, `$set`
+ * person properties and `$groups`, so `$identify` adds nothing that tool calls do not already
+ * provide. Dropping `$mcp_tools_list` gives up `$mcp_listed_tool_names`; the advertised tool set
+ * is static per tool-group config, so it can be derived from code when needed.
  */
 const DROPPED_EVENTS: ReadonlySet<string> = new Set([
   PostHogMCPAnalyticsEvent.Initialize,
   PostHogMCPAnalyticsEvent.Identify,
+  PostHogMCPAnalyticsEvent.ToolsList,
 ]);
 
-export const dropHandshakeEvents: BeforeSendFn = (event) =>
+export const dropLowSignalEvents: BeforeSendFn = (event) =>
   DROPPED_EVENTS.has(event.event) ? null : event;
 
 type PostHogEnv = {
@@ -55,7 +58,7 @@ export function instrumentPostHogMcp(
     // Sentry is the source of truth for exception details; tool-call events still include error state.
     enableExceptionAutocapture: false,
     reportMissing: true,
-    beforeSend: dropHandshakeEvents,
+    beforeSend: dropLowSignalEvents,
     identify: distinctId
       ? {
           distinctId,
