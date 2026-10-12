@@ -1,10 +1,25 @@
-import { instrument } from "@posthog/mcp";
+import { instrument, PostHogMCPAnalyticsEvent, type BeforeSendFn } from "@posthog/mcp";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { PostHog } from "posthog-node";
 
 import type { Props } from "./types";
 
 const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
+
+/**
+ * Handshake events that are never sent to PostHog. Clients re-run `initialize` several times per
+ * session (Claude Code does it roughly every 3-4 minutes), and each one also fires a standalone
+ * `$identify`, so together they were ~90% of our event volume while carrying no usage signal.
+ * Every event we still send carries `distinct_id`, `$set` person properties and `$groups`, so
+ * `$identify` adds nothing that tool calls do not already provide.
+ */
+const DROPPED_EVENTS: ReadonlySet<string> = new Set([
+  PostHogMCPAnalyticsEvent.Initialize,
+  PostHogMCPAnalyticsEvent.Identify,
+]);
+
+export const dropHandshakeEvents: BeforeSendFn = (event) =>
+  DROPPED_EVENTS.has(event.event) ? null : event;
 
 type PostHogEnv = {
   POSTHOG_PROJECT_TOKEN?: string;
@@ -40,6 +55,7 @@ export function instrumentPostHogMcp(
     // Sentry is the source of truth for exception details; tool-call events still include error state.
     enableExceptionAutocapture: false,
     reportMissing: true,
+    beforeSend: dropHandshakeEvents,
     identify: distinctId
       ? {
           distinctId,
