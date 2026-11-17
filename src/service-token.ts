@@ -163,7 +163,7 @@ async function validateKnockServiceToken(
 export async function resolveKnockServiceToken(
   token: string,
   env: ServiceTokenEnv,
-): Promise<ResolveExternalTokenResult | null> {
+): Promise<Omit<ResolveExternalTokenResult, "audience"> | null> {
   if (!isKnockServiceToken(token)) {
     return null;
   }

@@ -3,6 +3,12 @@ export function canonicalMcpResource(origin: string): string {
   return `${origin.replace(/\/$/, "")}/mcp`;
 }
 
+/** RFC 9728 metadata URL the OAuth provider serves for a protected resource. */
+export function protectedResourceMetadataUrl(resource: string): string {
+  const { origin, pathname } = new URL(resource);
+  return `${origin}/.well-known/oauth-protected-resource${pathname.replace(/\/$/, "")}`;
+}
+
 /**
  * Same origin, and path is empty (issuer origin) or equal to the canonical
  * `/mcp` path. Trailing slashes are not meaningful. Query/fragment are not aliases.
@@ -59,6 +65,7 @@ function cloneRequest(request: Request, url: URL, body: string): Request {
     headers,
     body,
     redirect: request.redirect,
+    cf: request.cf,
   });
 }
 

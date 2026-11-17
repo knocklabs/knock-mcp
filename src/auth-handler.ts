@@ -7,7 +7,8 @@ import * as Sentry from "@sentry/cloudflare";
 import { toolGroups, resolveEffectiveSelectedGroups } from "./tool-groups";
 import { resolveMapiAccessMode } from "./code-mode/access";
 import { buildOauthProps } from "./session-auth";
-import { storeKnockTokens } from "./token-store";
+import { activateKnockTokens, storePendingKnockTokens } from "./token-store";
+import { nowSeconds } from "./time";
 import {
   addApprovedClient,
   bindStateToSession,
@@ -360,19 +361,33 @@ app.get("/callback", async (c) => {
   // Decode the JWT to extract the user ID, email, and token expiry
   let userId: string | undefined;
   let email: string | undefined;
-  let expiresAt: number = Math.floor(Date.now() / 1000) + 300; // default 5 minutes
+  let expiresAt: number = nowSeconds() + 300; // default 5 minutes
   try {
     const claims = jose.decodeJwt(accessToken);
     userId = typeof claims.sub === "string" ? claims.sub : undefined;
     email = typeof claims.email === "string" ? claims.email : undefined;
     if (typeof claims.exp === "number") expiresAt = claims.exp;
   } catch {
-    // Non-JWT access token; proceed without claims
+    // Non-JWT access token; handled below because the user id is required
   }
 
-  // Persist the Knock tokens in KV so they can be refreshed transparently on expiry
+  if (!userId) {
+    // The MCP grant is keyed by this id. Falling back to a shared placeholder
+    // would let unrelated users overwrite each other's grants.
+    Sentry.captureMessage("Knock access token has no subject claim", {
+      level: "error",
+      tags: { route: "GET /callback", stage: "decode_access_token" },
+    });
+    return c.text(
+      "Could not identify the signed-in Knock user. Please restart the authorization flow.",
+      400,
+    );
+  }
+
+  // Persist the Knock tokens in KV so they can be refreshed transparently on expiry.
+  // The record is only kept for the consent flow until a grant refers to it.
   const tokenId = crypto.randomUUID();
-  await storeKnockTokens(c.env, tokenId, {
+  await storePendingKnockTokens(c.env, tokenId, {
     accessToken,
     refreshToken,
     expiresAt,
@@ -474,6 +489,13 @@ app.post("/api/authorize-tools", async (c) => {
       oauthReqInfo: AuthRequest;
     };
 
+    if (!userId) {
+      return c.json(
+        { error: "Session is missing user id; please restart the authorization flow." },
+        400,
+      );
+    }
+
     if (!clientId) {
       // /callback always writes clientId from registerUpstreamClient; a missing value
       // means the session predates that field or the KV row was corrupted. Either way,
@@ -501,12 +523,17 @@ app.post("/api/authorize-tools", async (c) => {
 
     const { redirectTo } = await c.env.OAUTH_PROVIDER.completeAuthorization({
       request: oauthReqInfo,
-      userId: userId ?? "unknown",
+      userId,
       metadata: {},
       scope: [],
+      // Each device or client install keeps its own grant. The provider default
+      // revokes every other grant for the same user and client, which signs one
+      // machine out whenever another one authorizes.
+      revokeExistingGrants: false,
       props: buildOauthProps({
         tokenId,
         clientId,
+        issuedAt: nowSeconds(),
         userId,
         email,
         selectedGroups: effectiveGroups,
@@ -514,6 +541,8 @@ app.post("/api/authorize-tools", async (c) => {
         clientApplication,
       }),
     });
+
+    await activateKnockTokens(c.env, tokenId);
 
     return c.json({ redirectTo });
   } catch (error: unknown) {
