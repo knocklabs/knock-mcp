@@ -8,7 +8,7 @@ export const MISSING_SESSION_CREDENTIALS =
 
 /**
  * Operational credential model for an MCP session.
- * `Props` is the Durable Object persistence bag; this is what call sites should switch on.
+ * `Props` is what the OAuth provider hands each request; this is what call sites should switch on.
  */
 export type SessionAuth =
   | { kind: "oauth"; tokenId: string }

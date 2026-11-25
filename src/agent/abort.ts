@@ -64,7 +64,7 @@ export function createAgentRunAbortController(
 /** 45s start stream budget; does not stop the remote run when the budget expires. */
 export function createStartStreamBudgetController(
   budgetMs: number,
-  externalSignal: AbortSignal,
+  externalSignal: AbortSignal | undefined,
 ): AgentRunAbortHandle {
   const controller = new AbortController();
   const state: { reason: AgentAbortReason | undefined } = { reason: undefined };
@@ -76,7 +76,7 @@ export function createStartStreamBudgetController(
     controller.abort();
   }, budgetMs);
 
-  externalSignal.addEventListener(
+  externalSignal?.addEventListener(
     "abort",
     () => {
       if (!state.reason) {

@@ -1,15 +1,14 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type { ServerNotification, ServerRequest } from "@modelcontextprotocol/sdk/types.js";
+import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import * as Sentry from "@sentry/cloudflare";
 import { z } from "zod";
 
 import type { Props } from "../types";
 import { createStartStreamBudgetController } from "./abort";
-import { runKnockAgentTool } from "./mcp-response";
+import { runKnockAgentTool, stopAgentMcpToolResponse } from "./mcp-response";
 import { knockAgentProgressHandler } from "./progress";
 import {
   DEFAULT_START_STREAM_BUDGET_MS,
+  requestAgentStop,
   startAgentRun,
   streamAgentSessionOnce,
 } from "./stream";
@@ -28,6 +27,8 @@ This tool waits up to ~45 seconds, then returns a consolidated result. Read the 
 - Status: error — the run failed; read the Error line.
 - Status: running — the run is still going; save the Session ID and poll with get_knock_agent until Status is complete or error.
 
+Cancelling this call may leave the run going. To stop it, call stop_knock_agent with the Session ID.
+
 Agents can support follow-up runs by passing in the returned session_id. Use a follow-up run only for related edits or questions about a resource you just modified. Otherwise, use the Management API or start a new agent session.`;
 
 const GET_KNOCK_AGENT_DESCRIPTION = `Poll an in-progress Knock agent session and return a consolidated result (agent text, tool calls, modified resources, and a Status line).
@@ -45,13 +46,24 @@ How to use:
 
 The Knock agent keeps running on the backend between your polls; each call is short-lived.`;
 
+const STOP_KNOCK_AGENT_DESCRIPTION = `Stop a Knock agent session's current run, for example when the user changes their mind. Changes the run already made are kept; the session can take follow-up runs afterwards.`;
+
+/**
+ * Aborts when the client cancels the call. Only 2026-07-28 says a dropped
+ * connection is a cancellation; on older protocols it isn't, so there the run
+ * carries on and stop_knock_agent ends it.
+ */
+function cancelSignal(ctx: ServerContext): AbortSignal | undefined {
+  return ctx.mcpReq.envelope ? ctx.mcpReq.signal : undefined;
+}
+
 export function registerKnockAgentTools(server: McpServer, env: Env, props: Props): void {
   server.registerTool(
     "start_knock_agent",
     {
       title: "Start Knock agent",
       description: START_KNOCK_AGENT_DESCRIPTION,
-      inputSchema: {
+      inputSchema: z.object({
         prompt: z
           .string()
           .max(MAX_AGENT_PROMPT_CHARS)
@@ -61,7 +73,7 @@ export function registerKnockAgentTools(server: McpServer, env: Env, props: Prop
           .uuid()
           .optional()
           .describe("Existing agent session ID for follow-up runs"),
-      },
+      }),
       // Claude Connectors Directory checks annotations.title (not only top-level title).
       annotations: {
         title: "Start Knock agent",
@@ -70,16 +82,14 @@ export function registerKnockAgentTools(server: McpServer, env: Env, props: Prop
         openWorldHint: true,
       },
     },
-    async (
-      { prompt, session_id: sessionId },
-      extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
-    ) => {
+    async ({ prompt, session_id: sessionId }, ctx) => {
       Sentry.setTag("knock.tool", "start_knock_agent");
 
-      const { controller, getAbortReason, clear: clearBudget } = createStartStreamBudgetController(
-        DEFAULT_START_STREAM_BUDGET_MS,
-        extra.signal,
-      );
+      const {
+        controller,
+        getAbortReason,
+        clear: clearBudget,
+      } = createStartStreamBudgetController(DEFAULT_START_STREAM_BUDGET_MS, cancelSignal(ctx));
 
       try {
         return await runKnockAgentTool(() =>
@@ -88,7 +98,7 @@ export function registerKnockAgentTools(server: McpServer, env: Env, props: Prop
             props,
             prompt,
             sessionId,
-            onProgress: knockAgentProgressHandler(extra),
+            onProgress: knockAgentProgressHandler(ctx),
             signal: controller.signal,
             getAbortReason,
           }),
@@ -104,12 +114,9 @@ export function registerKnockAgentTools(server: McpServer, env: Env, props: Prop
     {
       title: "Get Knock agent status",
       description: GET_KNOCK_AGENT_DESCRIPTION,
-      inputSchema: {
-        session_id: z
-          .string()
-          .uuid()
-          .describe("Agent session ID from start_knock_agent"),
-      },
+      inputSchema: z.object({
+        session_id: z.string().uuid().describe("Agent session ID from start_knock_agent"),
+      }),
       annotations: {
         title: "Get Knock agent status",
         readOnlyHint: true,
@@ -126,6 +133,31 @@ export function registerKnockAgentTools(server: McpServer, env: Env, props: Prop
           props,
           sessionId,
         }),
+      );
+    },
+  );
+
+  server.registerTool(
+    "stop_knock_agent",
+    {
+      title: "Stop Knock agent",
+      description: STOP_KNOCK_AGENT_DESCRIPTION,
+      inputSchema: z.object({
+        session_id: z.string().uuid().describe("Agent session ID from start_knock_agent"),
+      }),
+      annotations: {
+        title: "Stop Knock agent",
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true,
+      },
+    },
+    async ({ session_id: sessionId }) => {
+      Sentry.setTag("knock.tool", "stop_knock_agent");
+      return stopAgentMcpToolResponse(
+        await requestAgentStop(env, props, sessionId),
+        "get_knock_agent",
       );
     },
   );

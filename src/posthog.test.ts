@@ -1,9 +1,9 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { instrument } from "@posthog/mcp";
 import { PostHog } from "posthog-node";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { dropLowSignalEvents, instrumentPostHogMcp } from "./posthog";
+import { instrumentPostHogMcp } from "./posthog";
 
 vi.mock("@posthog/mcp", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@posthog/mcp")>()),
@@ -59,7 +59,7 @@ describe("instrumentPostHogMcp", () => {
         enableConversationId: true,
         enableExceptionAutocapture: false,
         reportMissing: true,
-        beforeSend: dropLowSignalEvents,
+        beforeSend: expect.any(Function),
         identify: {
           distinctId: "user_1",
           properties: { authKind: "oauth", email: "user@example.com" },

@@ -91,21 +91,58 @@ export async function resolveAgentAuthHeaders(
   return { ...headers, ...buildKnockMcpClientHeaders(props.clientApplication) };
 }
 
+function postAgentStop(
+  baseUrl: string,
+  sessionId: string,
+  headers: Record<string, string>,
+): Promise<Response> {
+  const { "Content-Type": _contentType, ...stopHeaders } = headers;
+  return fetch(`${baseUrl}/agent/session/${sessionId}/stop`, {
+    method: "POST",
+    headers: stopHeaders,
+  });
+}
+
+/** Best-effort stop when the MCP client aborts. */
 export async function stopAgentSession(
   baseUrl: string,
   sessionId: string,
   headers: Record<string, string>,
 ): Promise<void> {
-  const { "Content-Type": _contentType, ...stopHeaders } = headers;
-
   try {
-    await fetch(`${baseUrl}/agent/session/${sessionId}/stop`, {
-      method: "POST",
-      headers: stopHeaders,
-    });
+    await postAgentStop(baseUrl, sessionId, headers);
   } catch {
-    // Best-effort stop when the MCP client aborts or we hit our timeout.
+    // The run carries on; nothing here is waiting for it.
   }
+}
+
+/** Stops a session's run and says whether Knock accepted it. Stopping an idle session is fine. */
+export async function requestAgentStop(
+  env: Env,
+  props: Props,
+  rawSessionId: string,
+): Promise<Result<{ sessionId: string }, AgentError>> {
+  const sessionResult = validateAgentSessionId(rawSessionId, {
+    sessionId: rawSessionId.trim(),
+    runId: "",
+  });
+  if (Result.isError(sessionResult)) return Result.err(sessionResult.error);
+
+  const sessionId = sessionResult.value;
+  const errorContext: AgentErrorContext = { sessionId, runId: "" };
+  const response = await Result.tryPromise({
+    try: async () =>
+      postAgentStop(
+        getKnockControlBaseUrl(env),
+        sessionId,
+        await resolveAgentAuthHeaders(env, props),
+      ),
+    catch: toAgentNetworkError,
+  });
+  if (Result.isError(response)) return agentResultErr(response.error, errorContext);
+  if (!response.value.ok) return agentResponseError(response.value, errorContext);
+  await response.value.body?.cancel();
+  return Result.ok({ sessionId });
 }
 
 const MAX_ERROR_MESSAGE_CHARS = 500;

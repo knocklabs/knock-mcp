@@ -3,16 +3,14 @@ import OAuthProvider from "@cloudflare/workers-oauth-provider";
 import * as Sentry from "@sentry/cloudflare";
 
 import { AuthHandler } from "./auth-handler";
-import { KnockMCP as KnockMCPBase } from "./knock-mcp";
+import { buildMcpServer } from "./knock-mcp";
+import { createMcpApiHandler, MCP_ROUTE } from "./mcp-handler";
 import { OPENAI_APPS_CHALLENGE_PATH, openaiAppsChallengeResponse } from "./openai-apps-challenge";
 import { canonicalMcpResource, withCanonicalMcpResource } from "./mcp-resource";
 import { sentryConfig, shouldCaptureOAuthProviderError } from "./sentry";
 import { resolveKnockServiceToken } from "./service-token";
 
-export const KnockMCP = Sentry.instrumentDurableObjectWithSentry(
-  sentryConfig,
-  KnockMCPBase as unknown as new (state: DurableObjectState, env: Env) => KnockMCPBase,
-) as unknown as typeof KnockMCPBase;
+export { KnockMCP } from "./legacy-session";
 
 // The cloudflare:workers env export is typed Cloudflare.Env, which CI's
 // `wrangler types` generates without .dev.vars-only bindings like DEV_ORIGIN.
@@ -20,8 +18,8 @@ export const KnockMCP = Sentry.instrumentDurableObjectWithSentry(
 const origin = (env as Env).DEV_ORIGIN || "https://mcp.knock.app";
 
 const provider = new OAuthProvider({
-  apiRoute: "/mcp",
-  apiHandler: KnockMCP.serve("/mcp") as any,
+  apiRoute: MCP_ROUTE,
+  apiHandler: createMcpApiHandler(buildMcpServer) as any,
   defaultHandler: AuthHandler as any,
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/token",
