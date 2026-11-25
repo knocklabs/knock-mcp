@@ -121,6 +121,18 @@ describe.each([
     ]);
   });
 
+  it("get a readable error for a tool they don't have", async () => {
+    const readOnly = await connect(
+      era,
+      props({ selectedGroups: ["code-mode-mapi"], mapiAccessMode: "read" }),
+    );
+    for (const name of ["execute_mapi_write", "nonsense", "constructor"]) {
+      const result = await readOnly.callTool({ name, arguments: {} });
+      expect(result.isError).toBe(true);
+      expect(text(result)).toBe(`Tool ${name} not found`);
+    }
+  });
+
   it("aren't offered tool-list notifications, which the server never sends", async () => {
     const client = await connect(era);
     expect(client.getServerCapabilities()?.tools?.listChanged).not.toBe(true);

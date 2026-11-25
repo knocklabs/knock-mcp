@@ -18,6 +18,7 @@ import { KNOCK_MCP_SERVER_VERSION } from "./mcp-server-version";
 import type { BuildServerInput } from "./mcp-handler";
 import { resolveKnockAccessToken } from "./session-auth";
 import { instrumentPostHogMcp } from "./posthog";
+import { answerUnknownTools } from "./unknown-tools";
 
 type ToolkitPermissionTier = {
   read?: string[];
@@ -40,8 +41,6 @@ export function buildMcpServer({ env, props, waitUntil }: BuildServerInput): Mcp
       { capabilities: { tools: { listChanged: false } } },
     ),
   );
-
-  instrumentPostHogMcp(server, env, props, waitUntil);
 
   const getClient = async () => {
     const accessToken = await resolveKnockAccessToken(env, props);
@@ -113,5 +112,8 @@ export function buildMcpServer({ env, props, waitUntil }: BuildServerInput): Mcp
     }
   }
 
+  answerUnknownTools(server);
+  // Last, so analytics wraps the final handlers and sees calls to unknown tools too.
+  instrumentPostHogMcp(server, env, props, waitUntil);
   return server;
 }
