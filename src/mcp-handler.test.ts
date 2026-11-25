@@ -33,8 +33,15 @@ const props = (extra: Partial<Props> = {}): Props => ({
 
 const handler = createMcpApiHandler(buildMcpServer);
 
+/** Promises handed to waitUntil: all the runtime still runs once a client has gone. */
+let keptAlive: Promise<unknown>[] = [];
+
 function send(request: Request, requestProps: Props | undefined = props()): Promise<Response> {
-  const ctx = { props: requestProps, waitUntil: () => {}, passThroughOnException: () => {} };
+  const ctx = {
+    props: requestProps,
+    waitUntil: (promise: Promise<unknown>) => keptAlive.push(promise),
+    passThroughOnException: () => {},
+  };
   return handler.fetch(request, env, ctx as unknown as ExecutionContext);
 }
 
@@ -70,6 +77,7 @@ let respond: (url: string) => Response;
 
 beforeEach(() => {
   upstream = [];
+  keptAlive = [];
   respond = () => Response.json({ ok: true });
   vi.stubGlobal(
     "fetch",
@@ -176,7 +184,8 @@ describe("cancelling start_knock_agent", () => {
     await started;
     abort.abort();
     await call;
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    if (era === "2026") await Promise.all(keptAlive);
+    else await new Promise((resolve) => setTimeout(resolve, 20));
     return upstream.filter((r) => r.url.endsWith("/stop")).length;
   }
 
@@ -209,17 +218,62 @@ describe("requests", () => {
     ]);
   });
 
-  it("fail when the grant has no credentials or client ID, and report why", async () => {
-    const capture = vi.mocked(Sentry.captureException).mockClear();
-    for (const bad of [{ clientId: "c" }, { serviceToken: "knock_st_test" }]) {
+  it("ask for a new sign-in when the grant has no credentials or client ID", async () => {
+    for (const [bad, message] of [
+      [{ clientId: "c" }, "missing Knock credentials"],
+      [{ serviceToken: "knock_st_test" }, "missing clientId"],
+      [null, "missing Knock credentials"],
+    ] as const) {
       const response = await send(post(listTools), bad as unknown as Props);
-      expect(response.status).toBe(500);
-      expect(await response.text()).not.toContain("re-authenticate");
+      expect(response.status).toBe(401);
+      expect(response.headers.get("WWW-Authenticate")).toContain(
+        'resource_metadata="https://mcp.knock.app/.well-known/oauth-protected-resource/mcp"',
+      );
+      expect(await response.text()).toContain(message);
     }
-    expect(capture.mock.calls.map(([e]) => (e as Error).message)).toEqual([
-      expect.stringContaining("missing Knock credentials"),
-      expect.stringContaining("missing clientId"),
-    ]);
+  });
+
+  it("report a server that can't be built, without saying why to the client", async () => {
+    const capture = vi.mocked(Sentry.captureException).mockClear();
+    const broken = createMcpApiHandler(() => {
+      throw new Error("secret detail");
+    });
+    const ctx = { props: props(), waitUntil: () => {} } as unknown as ExecutionContext;
+    const response = await broken.fetch(post(listTools), env, ctx);
+    expect(response.status).toBe(500);
+    expect(await response.text()).not.toContain("secret detail");
+    expect(capture).toHaveBeenCalledTimes(1);
+  });
+
+  it("stream on 2026-07-28 from the start, even for a call without progress", async () => {
+    const request = new Request(ENDPOINT, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "Mcp-Protocol-Version": "2026-07-28",
+        "Mcp-Method": "tools/list",
+      },
+      body: JSON.stringify({
+        ...listTools,
+        params: {
+          _meta: {
+            "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+            "io.modelcontextprotocol/clientInfo": { name: "test", version: "1" },
+            "io.modelcontextprotocol/clientCapabilities": {},
+          },
+        },
+      }),
+    });
+    const response = await send(request);
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Content-Type")).toContain("text/event-stream");
+  });
+
+  it("accept the deployed domain as Host on localhost, the way wrangler dev sends it", async () => {
+    const request = new Request("http://localhost:8788/mcp", post(listTools));
+    request.headers.set("Host", "mcp.knock.app");
+    expect((await send(request)).status).toBe(200);
   });
 
   it("never share credentials between two callers at once", async () => {

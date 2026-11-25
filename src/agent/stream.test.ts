@@ -553,4 +553,55 @@ describe("stopAgentSession", () => {
       }),
     ).resolves.toBeUndefined();
   });
+
+  it("returns a running session when the budget ends before any response", async () => {
+    const controller = new AbortController();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_: string, init: RequestInit) =>
+          new Promise((_resolve, reject) =>
+            init.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            ),
+          ),
+      ),
+    );
+    const run = startAgentRun({
+      env: baseEnv,
+      props: baseProps,
+      prompt: "Make a workflow",
+      signal: controller.signal,
+      getAbortReason: () => "budget",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    controller.abort();
+    const result = await run;
+    expect(Result.isOk(result) && result.value.status).toBe("running");
+  });
+
+  it("stops a run that is cancelled before any response", async () => {
+    const controller = new AbortController();
+    const fetchMock = vi.fn((url: string, init: RequestInit) =>
+      url.endsWith("/stop")
+        ? Promise.resolve(Response.json({ ok: true }))
+        : new Promise((_resolve, reject) =>
+            init.signal?.addEventListener("abort", () =>
+              reject(new DOMException("aborted", "AbortError")),
+            ),
+          ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const run = startAgentRun({
+      env: baseEnv,
+      props: baseProps,
+      prompt: "Make a workflow",
+      signal: controller.signal,
+      getAbortReason: () => "client",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    controller.abort();
+    await run;
+    expect(fetchMock.mock.calls.filter(([url]) => url.endsWith("/stop"))).toHaveLength(1);
+  });
 });

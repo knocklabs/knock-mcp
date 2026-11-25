@@ -2,6 +2,7 @@ import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import * as Sentry from "@sentry/cloudflare";
 import { z } from "zod";
 
+import { keepAlive } from "../keep-alive";
 import type { Props } from "../types";
 import { createStartStreamBudgetController } from "./abort";
 import { runKnockAgentTool, stopAgentMcpToolResponse } from "./mcp-response";
@@ -92,16 +93,19 @@ export function registerKnockAgentTools(server: McpServer, env: Env, props: Prop
       } = createStartStreamBudgetController(DEFAULT_START_STREAM_BUDGET_MS, cancelSignal(ctx));
 
       try {
-        return await runKnockAgentTool(() =>
-          startAgentRun({
-            env,
-            props,
-            prompt,
-            sessionId,
-            onProgress: knockAgentProgressHandler(ctx),
-            signal: controller.signal,
-            getAbortReason,
-          }),
+        // Kept alive so that a cancelled call still gets to stop its run.
+        return await keepAlive(
+          runKnockAgentTool(() =>
+            startAgentRun({
+              env,
+              props,
+              prompt,
+              sessionId,
+              onProgress: knockAgentProgressHandler(ctx),
+              signal: controller.signal,
+              getAbortReason,
+            }),
+          ),
         );
       } finally {
         clearBudget();
