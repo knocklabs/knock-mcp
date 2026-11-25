@@ -1,10 +1,12 @@
 import { instrument, PostHogMCPAnalyticsEvent, type BeforeSendFn } from "@posthog/mcp";
-import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { McpServer } from "@modelcontextprotocol/server";
 import { PostHog } from "posthog-node";
 
 import type { Props } from "./types";
 
 const DEFAULT_POSTHOG_HOST = "https://us.i.posthog.com";
+
+type CaptureEvent = Parameters<BeforeSendFn>[0];
 
 /**
  * Events that are never sent to PostHog because they carry no usage signal at our volume.
@@ -21,14 +23,32 @@ const DROPPED_EVENTS: ReadonlySet<string> = new Set([
   PostHogMCPAnalyticsEvent.ToolsList,
 ]);
 
-export const dropLowSignalEvents: BeforeSendFn = (event) =>
+export const dropLowSignalEvents = (event: CaptureEvent): CaptureEvent | null =>
   DROPPED_EVENTS.has(event.event) ? null : event;
+
+const CLIENT_NAME_PROPERTY = "$mcp_client_name";
+
+/**
+ * Drops low-signal events, and names the client from its OAuth registration
+ * when the request doesn't. The 2025-era protocols only name it in
+ * `initialize`, which is a request of its own.
+ */
+export function prepareEvents(clientName: string | undefined): BeforeSendFn {
+  return (event) => {
+    const kept = dropLowSignalEvents(event);
+    if (!kept || !clientName || kept.properties[CLIENT_NAME_PROPERTY]) return kept;
+    return { ...kept, properties: { ...kept.properties, [CLIENT_NAME_PROPERTY]: clientName } };
+  };
+}
 
 type PostHogEnv = {
   POSTHOG_PROJECT_TOKEN?: string;
   POSTHOG_HOST?: string;
 };
-type PostHogIdentity = Pick<Props, "accountName" | "accountSlug" | "authKind" | "email" | "userId">;
+type PostHogIdentity = Pick<
+  Props,
+  "accountName" | "accountSlug" | "authKind" | "clientApplication" | "email" | "userId"
+>;
 
 export function instrumentPostHogMcp(
   server: McpServer,
@@ -58,7 +78,7 @@ export function instrumentPostHogMcp(
     // Sentry is the source of truth for exception details; tool-call events still include error state.
     enableExceptionAutocapture: false,
     reportMissing: true,
-    beforeSend: dropLowSignalEvents,
+    beforeSend: prepareEvents(identity.clientApplication?.name),
     identify: distinctId
       ? {
           distinctId,

@@ -72,6 +72,8 @@ async function runPreparedAgentSession(
 ): Promise<Result<AgentRunResult, AgentError>> {
   const postResult = await postAgentRun(prepared, headers, reducer.fetchSignal);
   if (Result.isError(postResult)) {
+    // Aborted before any response: the run may have started, so it needs the same handling as later.
+    reducer.fetchSignal.throwIfAborted();
     return Result.err(postResult.error);
   }
 
@@ -87,14 +89,14 @@ async function runPreparedAgentSession(
   return Result.ok(finalizeAgentRunOutcome(reducer.getAccumulator()));
 }
 
-function handleStartStreamError(
+async function handleStartStreamError(
   error: unknown,
   run: PreparedAgentRun,
   reducer: AgentEventReducer,
   headers: Record<string, string>,
   signal: AbortSignal | undefined,
   getAbortReason?: () => AgentAbortReason | undefined,
-): Result<AgentRunResult, AgentError> {
+): Promise<Result<AgentRunResult, AgentError>> {
   const accumulator = reducer.getAccumulator();
 
   if (accumulator.isTerminal) {
@@ -108,7 +110,8 @@ function handleStartStreamError(
   }
 
   if (aborted) {
-    void stopAgentSession(run.baseUrl, run.sessionId, headers);
+    // Awaited, so a caller that keeps this run alive keeps the stop alive too.
+    await stopAgentSession(run.baseUrl, run.sessionId, headers);
     return Result.ok(
       finalizeAgentRunResult(abortedRunAccumulator(accumulator, getAbortReason)),
     );
@@ -170,7 +173,7 @@ export async function startAgentRun(
 
     return await runPreparedAgentSession(run, reducer, headers);
   } catch (error) {
-    return handleStartStreamError(error, run, reducer, headers, signal, getAbortReason);
+    return await handleStartStreamError(error, run, reducer, headers, signal, getAbortReason);
   }
 }
 

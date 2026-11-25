@@ -2,13 +2,13 @@ import type { KnockClientApplicationInfo } from "./knock-client-user-agent";
 
 export type { KnockClientApplicationInfo };
 
-/** OAuth / tool-selection props stored on the MCP Durable Object (see workers-oauth-provider). */
+/** OAuth / tool-selection props stored on the grant (see workers-oauth-provider). */
 export type MapiAccessMode = "read" | "read_write";
 
 export type AuthKind = "oauth" | "service_token";
 
 /**
- * Persistence bag on the MCP Durable Object.
+ * What the OAuth provider hands each MCP request, from its grant or service token.
  *
  * Dual auth is encoded as optional fields because workers-oauth-provider
  * stores a flat `Record` and legacy OAuth sessions omit `authKind`.

@@ -24,10 +24,10 @@
     "@knocklabs/agent-toolkit": "^0.5.7",
     "@knocklabs/mgmt": "^0.35.0",
     "@knocklabs/node": "^1.32.0",
-    "@modelcontextprotocol/sdk": "1.32.2",
+    "@modelcontextprotocol/server": "2.4.0",
     "@posthog/mcp": "0.21.2",
     "@sentry/cloudflare": "^10.49.0",
-    "agents": "^0.8.7",
+    "agents": "0.34.0",
     "better-result": "^2.9.2",
     "hono": "4.13.18",
     "jose": "6.2.13",
@@ -39,9 +39,6 @@
       "@knocklabs/mgmt": "$@knocklabs/mgmt",
       "@knocklabs/node": "$@knocklabs/node",
       "@sentry/node": "10.77.1"
-    },
-    "agents": {
-      "@modelcontextprotocol/sdk": "1.32.2"
     },
     "yargs": "18.2.0",
     "@modelcontextprotocol/sdk": "1.32.2",
@@ -71,6 +68,7 @@
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20260527.1",
+    "@modelcontextprotocol/client": "2.4.0",
     "@modelcontextprotocol/inspector": "^0.21.2",
     "@types/node": "^25.9.1",
     "prettier": "^3.8.3",

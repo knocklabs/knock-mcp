@@ -6,6 +6,7 @@ export {
   buildFollowUpRunBody,
   buildKnockMcpClientHeaders,
   getAgentSessionStream,
+  requestAgentStop,
   stopAgentSession,
 } from "./session-api";
 export {

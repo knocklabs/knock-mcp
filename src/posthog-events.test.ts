@@ -1,19 +1,22 @@
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import { McpServer } from "@modelcontextprotocol/server";
 import { PostHog } from "posthog-node";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { dropLowSignalEvents, instrumentPostHogMcp } from "./posthog";
+import { dropLowSignalEvents, instrumentPostHogMcp, prepareEvents } from "./posthog";
 
 type Captured = { event: string; distinctId: string; properties?: Record<string, unknown> };
 
 async function runSession(callTool: boolean) {
   const server = new McpServer({ name: "test", version: "1.0.0" });
-  server.registerTool("ping", { inputSchema: { value: z.string().optional() } }, async () => ({
-    content: [{ type: "text" as const, text: "pong" }],
-  }));
+  server.registerTool(
+    "ping",
+    { inputSchema: z.object({ value: z.string().optional() }) },
+    async () => ({
+      content: [{ type: "text" as const, text: "pong" }],
+    }),
+  );
 
   const posthog = instrumentPostHogMcp(
     server,
@@ -65,6 +68,33 @@ describe("PostHog event filtering", () => {
     const events = await runSession(false);
 
     expect(events).toEqual([]);
+  });
+});
+
+describe("prepareEvents", () => {
+  const toolCall = (properties: Record<string, unknown>) => ({
+    event: "$mcp_tool_call",
+    distinct_id: "user_1",
+    properties,
+    timestamp: new Date().toISOString(),
+    type: "capture" as const,
+  });
+
+  it("names the client from its registration when the request doesn't", () => {
+    expect(prepareEvents("Cursor")(toolCall({ a: 1 }))).toMatchObject({
+      properties: { a: 1, $mcp_client_name: "Cursor" },
+    });
+  });
+
+  it("keeps the name the request gave, and adds nothing without a registration", () => {
+    const named = toolCall({ $mcp_client_name: "claude-code" });
+    expect(prepareEvents("Cursor")(named)).toBe(named);
+    const unnamed = toolCall({});
+    expect(prepareEvents(undefined)(unnamed)).toBe(unnamed);
+  });
+
+  it("drops low-signal events either way", () => {
+    expect(prepareEvents("Cursor")({ ...toolCall({}), event: "$mcp_tools_list" })).toBeNull();
   });
 });
 

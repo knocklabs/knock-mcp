@@ -1,5 +1,4 @@
-import { McpAgent } from "agents/mcp";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import * as Sentry from "@sentry/cloudflare";
 
@@ -9,7 +8,6 @@ import { registerMapiCodeMode } from "./code-mode/mapi";
 import { registerKnockAgentTools } from "./agent/knock-agent-tools";
 import { createKnockClient } from "./knock-client";
 import { getKnockControlBaseUrl } from "./knock-control-url";
-import type { Props } from "./types";
 import {
   AGENT_CATEGORY,
   CODE_MODE_MAPI_CATEGORY,
@@ -17,12 +15,10 @@ import {
   resolveGroupsToCategories,
 } from "./tool-groups";
 import { KNOCK_MCP_SERVER_VERSION } from "./mcp-server-version";
-import {
-  applySessionSentryContext,
-  requireSessionAuth,
-  resolveKnockAccessToken,
-} from "./session-auth";
+import type { BuildServerInput } from "./mcp-handler";
+import { resolveKnockAccessToken } from "./session-auth";
 import { instrumentPostHogMcp } from "./posthog";
+import { answerUnknownTools } from "./unknown-tools";
 
 type ToolkitPermissionTier = {
   read?: string[];
@@ -36,94 +32,88 @@ function toolkitToolIsReadOnly(category: string, toolKey: string): boolean {
   return Boolean(permissions?.read?.includes(toolKey));
 }
 
-export class KnockMCP extends McpAgent<Env, Record<string, never>, Props> {
-  server = Sentry.wrapMcpServerWithSentry(
-    new McpServer({ name: "Knock", version: KNOCK_MCP_SERVER_VERSION }),
+/** Builds the MCP server for one request: the tools its grant selected, with analytics around them. */
+export function buildMcpServer({ env, props, waitUntil }: BuildServerInput): McpServer {
+  const server = Sentry.wrapMcpServerWithSentry(
+    new McpServer(
+      { name: "Knock", version: KNOCK_MCP_SERVER_VERSION },
+      // The tools can't change during a connection, so clients needn't listen for changes.
+      { capabilities: { tools: { listChanged: false } } },
+    ),
   );
 
-  async init() {
-    const props = this.props;
-    requireSessionAuth(props);
-    if (!props?.clientId) {
-      // Sessions created before clientId was added to Props (pre-2026-03-24) land here.
-      // Their requests to mAPI would silently 401 because we wouldn't send x-knock-client-id;
-      // fail loudly instead so the MCP client surfaces the need to re-auth.
-      throw new Error("MCP session missing clientId; please re-authenticate.");
-    }
-
-    applySessionSentryContext(props);
-
-    instrumentPostHogMcp(this.server, this.env, props, (promise) => this.ctx.waitUntil(promise));
-
-    const getClient = async () => {
-      const accessToken = await resolveKnockAccessToken(this.env, props);
-      const config = { serviceToken: accessToken, clientId: props.clientId };
-      return {
-        knockClient: createKnockClient({
-          ...config,
-          baseURL: getKnockControlBaseUrl(this.env),
-        }),
-        config,
-      };
+  const getClient = async () => {
+    const accessToken = await resolveKnockAccessToken(env, props);
+    const config = { serviceToken: accessToken, clientId: props.clientId };
+    return {
+      knockClient: createKnockClient({
+        ...config,
+        baseURL: getKnockControlBaseUrl(env),
+      }),
+      config,
     };
+  };
 
-    const effectiveGroups = resolveEffectiveSelectedGroups(props.selectedGroups);
-    const categories = resolveGroupsToCategories(effectiveGroups);
+  const effectiveGroups = resolveEffectiveSelectedGroups(props.selectedGroups);
+  const categories = resolveGroupsToCategories(effectiveGroups);
 
-    if (categories.includes(CODE_MODE_MAPI_CATEGORY)) {
-      registerMapiCodeMode(this.server, this.env, props);
-    }
+  if (categories.includes(CODE_MODE_MAPI_CATEGORY)) {
+    registerMapiCodeMode(server, env, props);
+  }
 
-    if (categories.includes(AGENT_CATEGORY)) {
-      registerKnockAgentTools(this.server, this.env, props);
-    }
+  if (categories.includes(AGENT_CATEGORY)) {
+    registerKnockAgentTools(server, env, props);
+  }
 
-    const toolkitCategories = categories.filter((c) => !c.startsWith("__"));
+  const toolkitCategories = categories.filter((c) => !c.startsWith("__"));
 
-    for (const cat of toolkitCategories) {
-      const categoryTools = (tools as Record<string, Record<string, KnockToolType>>)[cat] ?? {};
+  for (const cat of toolkitCategories) {
+    const categoryTools = (tools as Record<string, Record<string, KnockToolType>>)[cat] ?? {};
 
-      for (const [toolKey, tool] of Object.entries(categoryTools)) {
-        // Agent-toolkit may ship zod v3 schemas; root uses zod v4 — normalize via unknown.
-        const toolParams = (tool.parameters ??
-          z.object({})) as unknown as z.ZodObject<z.ZodRawShape>;
-        const isReadOnly = toolkitToolIsReadOnly(cat, toolKey);
+    for (const [toolKey, tool] of Object.entries(categoryTools)) {
+      // The toolkit's types come from its own zod; package.json pins one zod at runtime.
+      const toolParams = (tool.parameters ?? z.object({})) as unknown as z.ZodObject<z.ZodRawShape>;
+      const isReadOnly = toolkitToolIsReadOnly(cat, toolKey);
 
-        this.server.registerTool(
-          tool.method,
-          {
-            title: tool.name,
-            description: tool.description,
-            inputSchema: toolParams.shape,
-            // Claude Connectors Directory checks annotations.title (not only top-level title).
-            annotations: isReadOnly
-              ? {
-                  title: tool.name,
-                  readOnlyHint: true,
-                  destructiveHint: false,
-                  openWorldHint: true,
-                }
-              : {
-                  title: tool.name,
-                  readOnlyHint: false,
-                  destructiveHint: true,
-                  openWorldHint: true,
-                },
-          },
-          async (arg: unknown) => {
-            Sentry.setTag("knock.tool", tool.method);
-            const { knockClient, config } = await getClient();
-            // Toolkit types may resolve @knocklabs/* from a different copy (e.g. npm link).
-            const res = await tool.bindExecute(
-              knockClient as unknown as Parameters<typeof tool.bindExecute>[0],
-              config,
-            )(arg);
-            return {
-              content: [{ type: "text" as const, text: JSON.stringify(res) }],
-            };
-          },
-        );
-      }
+      server.registerTool(
+        tool.method,
+        {
+          title: tool.name,
+          description: tool.description,
+          inputSchema: z.object(toolParams.shape),
+          // Claude Connectors Directory checks annotations.title (not only top-level title).
+          annotations: isReadOnly
+            ? {
+                title: tool.name,
+                readOnlyHint: true,
+                destructiveHint: false,
+                openWorldHint: true,
+              }
+            : {
+                title: tool.name,
+                readOnlyHint: false,
+                destructiveHint: true,
+                openWorldHint: true,
+              },
+        },
+        async (arg: unknown) => {
+          Sentry.setTag("knock.tool", tool.method);
+          const { knockClient, config } = await getClient();
+          // Toolkit types may resolve @knocklabs/* from a different copy (e.g. npm link).
+          const res = await tool.bindExecute(
+            knockClient as unknown as Parameters<typeof tool.bindExecute>[0],
+            config,
+          )(arg);
+          return {
+            content: [{ type: "text" as const, text: JSON.stringify(res) }],
+          };
+        },
+      );
     }
   }
+
+  answerUnknownTools(server);
+  // Last, so analytics wraps the final handlers and sees calls to unknown tools too.
+  instrumentPostHogMcp(server, env, props, waitUntil);
+  return server;
 }

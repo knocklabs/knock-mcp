@@ -1,16 +1,15 @@
-import type { RequestHandlerExtra } from "@modelcontextprotocol/sdk/shared/protocol.js";
-import type { ServerNotification, ServerRequest } from "@modelcontextprotocol/sdk/types.js";
+import type { ServerContext } from "@modelcontextprotocol/server";
 
 import type { AgentRunAccumulator } from "./events";
 
 export function knockAgentProgressHandler(
-  extra: RequestHandlerExtra<ServerRequest, ServerNotification>,
+  ctx: ServerContext,
 ): ((state: AgentRunAccumulator) => Promise<void>) | undefined {
-  const progressToken = extra._meta?.progressToken;
+  const progressToken = ctx.mcpReq._meta?.progressToken;
   if (progressToken == null) return undefined;
 
   return async (state) => {
-    await extra.sendNotification({
+    await ctx.mcpReq.notify({
       method: "notifications/progress",
       params: {
         progressToken,

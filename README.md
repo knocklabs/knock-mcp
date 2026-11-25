@@ -95,7 +95,7 @@ npm install
 npm install --prefix client
 ```
 
-The root [`.npmrc`](.npmrc) sets `legacy-peer-deps=true` because `agents` declares optional peer packages (for example `ai`) that this Worker does not use. `@modelcontextprotocol/sdk` is pinned to the same version as `agents` so TypeScript sees a single `McpServer` type.
+The root [`.npmrc`](.npmrc) sets `legacy-peer-deps=true` because `agents` declares optional peer packages (for example `ai`) that this Worker does not use. `@modelcontextprotocol/server` is pinned to the version `agents` requires.
 
 ### 2. Create a KV namespace
 
@@ -231,7 +231,7 @@ MCP Client (e.g. Cursor, Claude Desktop)
     │
     ▼ OAuth 2.1 + PKCE
 Cloudflare Worker (this repo)
-    │  ├─ /mcp          — MCP endpoint (Durable Object)
+    │  ├─ /mcp          — MCP endpoint (stateless)
     │  ├─ /authorize    — OAuth consent + tool selection UI
     │  └─ /callback     — Token exchange with Knock AuthKit
     │       search_mapi / execute_mapi_read / execute_mapi_write  — Code Mode
@@ -241,7 +241,7 @@ Cloudflare Worker (this repo)
 Knock Management API (control.knock.app) and other Knock APIs
 ```
 
-The worker is deployed on Cloudflare Workers with Durable Objects for stateful MCP sessions. It acts as both the OAuth authorization server (to MCP clients) and an OAuth client (to Knock's AuthKit). Dynamic client registration means the worker registers itself with AuthKit at runtime — no static client IDs or pre-registered redirect URIs needed. **Code Mode** uses [`@cloudflare/codemode`](https://github.com/cloudflare/agents/tree/main/packages/codemode) with a [Worker Loader](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) so LLM-generated code runs in an isolated sub-worker; `mapi.request()` on the host applies your OAuth token to `https://control.knock.app`.
+The worker is deployed on Cloudflare Workers and serves MCP 2026-07-28 and the 2025-era protocols from one stateless endpoint: each request builds its own server, and nothing is kept between requests. The `KnockMCP` Durable Object that used to hold sessions is empty, and stays only so a rollback works. It acts as both the OAuth authorization server (to MCP clients) and an OAuth client (to Knock's AuthKit). Dynamic client registration means the worker registers itself with AuthKit at runtime — no static client IDs or pre-registered redirect URIs needed. **Code Mode** uses [`@cloudflare/codemode`](https://github.com/cloudflare/agents/tree/main/packages/codemode) with a [Worker Loader](https://developers.cloudflare.com/workers/runtime-apis/bindings/worker-loader/) so LLM-generated code runs in an isolated sub-worker; `mapi.request()` on the host applies your OAuth token to `https://control.knock.app`.
 
 ## License
 

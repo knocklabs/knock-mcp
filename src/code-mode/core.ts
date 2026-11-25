@@ -1,4 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/server";
 import { DynamicWorkerExecutor, resolveProvider } from "@cloudflare/codemode";
 import { z } from "zod";
 
@@ -239,9 +239,9 @@ async () => {
   return Object.keys(spec.paths).slice(0, 20);
 }
 `,
-      inputSchema: {
+      inputSchema: z.object({
         code: z.string().describe("JavaScript async arrow function to search the spec"),
-      },
+      }),
       // Claude Connectors Directory checks annotations.title (not only top-level title).
       annotations: {
         title: searchTitle,
@@ -279,7 +279,9 @@ async () => {
   return { status: res.status, entries: res.result.entries, page_info: res.result.page_info };
 }
 `,
-      inputSchema: { code: z.string().describe("JavaScript async arrow function to execute") },
+      inputSchema: z.object({
+        code: z.string().describe("JavaScript async arrow function to execute"),
+      }),
       annotations: {
         title: executeReadTitle,
         readOnlyHint: true,
@@ -321,7 +323,9 @@ async () => {
   return { status: res.status, result: res.result };
 }
 `,
-      inputSchema: { code: z.string().describe("JavaScript async arrow function to execute") },
+      inputSchema: z.object({
+        code: z.string().describe("JavaScript async arrow function to execute"),
+      }),
       annotations: {
         title: executeWriteTitle,
         readOnlyHint: false,
